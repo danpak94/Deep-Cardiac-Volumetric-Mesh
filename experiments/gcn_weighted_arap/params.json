@@ -1,0 +1,31 @@
+{
+    "task": "mtm_weighted_arap",
+    "model_used": "gcn_displace_regression",
+    "deform_gradient_method": "tet",
+    "distortion_type": "ARAP",
+    "template_load_fn": "cad_open_valve_base_surf_sep",
+    "template_P_phase": null,
+    "arap_template_filename1": ["CAD_open_valve_vol_mesh_64x64x64.vtk", "CAD_open_valve_base_surf_faces_tri.pkl"],
+    "arap_template_filename2": ["CAD_closed_valve_vol_mesh_64x64x64.vtk", "CAD_closed_valve_base_surf_faces_tri.pkl"],
+    "arap_softmax_base_exp": "e",
+
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "num_epochs": 2000,
+    "save_summary_steps": 1,
+    "num_workers": 0,
+    "train_fraction": 0.8,
+    "val_fraction": 0.2,
+
+    "seg_net_input_size": [64,64,64],
+    "seg_net_n_channels_in": 1,
+    "seg_net_n_channels_out": 1,
+    "seg_net_base_n_filter": 16,
+    "seg_net_dropout_rate": 0.4,
+
+    "bspline_deform_sigma": [12, 12, 12],
+    "bspline_deform_order": 3,
+    "bspline_deform_chance": 0.9,
+    
+    "loss_lambdas": [5]
+}
