@@ -16,5 +16,5 @@
 ```
 
 #### TODO
-Upload evaluation code
-Add results figure and table
+1. Upload evaluation code
+2. Add results figure and table
