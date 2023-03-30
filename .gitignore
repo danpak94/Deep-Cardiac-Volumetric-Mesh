@@ -1,0 +1,25 @@
+**/__pycache__
+**/.ipynb_checkpoints
+experiments/** !experiments/**/*.py
+*.npy
+*.pt
+*.face
+*.node
+*.stl
+*.off
+*.vtk
+*.inp
+*.csv
+*.png
+*.svg
+*.nrrd
+*.mrml
+*.pkl
+*.mrk.json
+*.zip
+*.usd
+*.usda
+*.obj
+*.c
+*.pyd
+**/build/**

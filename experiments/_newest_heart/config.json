@@ -1,0 +1,37 @@
+{
+    "do_profiling": false,
+    "restore_file": "last",
+    "data_dir": "../../data/ct_npy/lv_av_aorta",
+    "label_dir": "../../data/gt_pcl/lv_av_aorta_sep_leaflets",
+
+    "task": "surf_geo_whole_lv_ani_iso_aw_leaflets",
+    "template_verts_filepath": "../template_for_deform/lv_av_aorta/combined_v11_laa_verts_1.25scaled.npy",
+    "elems_dir3_tet_for_distortion_energy_filepath": "../template_for_deform/lv_av_aorta/combined_v11_elems_and_dir3_tet_for_distortion_energy.pt",
+    "faces_for_surface_accuracy_filepath": "../template_for_deform/lv_av_aorta/combined_v11_faces_for_surface_accuracy.pt",
+    "faces_for_surf_geo_filepath": "../template_for_deform/lv_av_aorta/combined_v11_faces_for_surf_geo.pt",
+    "loss_lambdas": [1, 10, 10, 1, 10],
+    
+    "model_used": "unet3d_mtm_only_displacements",
+    "reversed_field": false,
+    "bspline": true,
+    "diffeomorphic": true,
+    "bspline_sigma": [3, 3, 3],
+    "bspline_order": 3,
+    
+    "seg_net_input_size": [128,128,128],
+    "seg_net_n_channels_in": 1,
+    "seg_net_base_n_filter": 16,
+    "seg_net_dropout_rate": 0.4,
+    
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "num_epochs": 8000,
+    "save_summary_steps": 1,
+    "num_workers": 0,
+    "train_fraction": 0.8,
+    "val_fraction": 0.2,
+
+    "bspline_deform_sigma": [12, 12, 12],
+    "bspline_deform_order": 3,
+    "bspline_deform_chance": 0.9
+}
