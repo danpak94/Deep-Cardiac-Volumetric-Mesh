@@ -1,0 +1,31 @@
+{
+    "restore_file": null,
+    "data_dir": "../../data/ct_npy/lv_av_aorta_myo_cut",
+    "heart_pcl_dir": "../../data/gt_pcl/lv_av_aorta_sep_leaflets_myo_cut",
+    "ca2_sdf_dir": "../../data/gt_sdf/ca2_av_aorta",
+    "ca2_pv_dir": "../../data/gt_mesh/ca2_av_aorta",
+    "train_val_test_filepath": "../experiments/train_val_test_ct_filepaths_half_lv.json",
+
+    "task": "ca2_seg_generalized_dice",
+    "true_sdf_threshold": [-3, 3],
+
+    "model_used": "unet3d_seg_only",
+    "seg_net_input_size": [128,128,128],
+    "seg_net_n_channels_in": 1,
+    "seg_net_n_channels_out": 1,
+    "seg_net_base_n_filter": 16,
+    "seg_net_dropout_rate": 0.4,
+    "seg_net_final_activation": "sigmoid",
+    
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "num_epochs": 4000,
+    "save_summary_steps": 1,
+    "num_workers": 0,
+    "train_fraction": 0.77777,
+    "val_fraction": 0.222222,
+
+    "bspline_deform_sigma": [12, 12, 12],
+    "bspline_deform_order": 3,
+    "bspline_deform_chance": 0.9
+}
