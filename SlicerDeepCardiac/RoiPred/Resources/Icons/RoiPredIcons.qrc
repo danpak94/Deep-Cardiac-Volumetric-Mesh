@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="Icons">
+    <file>VisibleOff.png</file>
+    <file>VisibleOn.png</file>
+  </qresource>
+</RCC>
