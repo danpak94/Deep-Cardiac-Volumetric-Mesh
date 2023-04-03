@@ -23,6 +23,9 @@
 2. [Download 3D slicer](https://download.slicer.org/)
 
 3. Add SlicerDeepCardiac module(s)
+\
+\
+**NOTE**: this will slicer.util.pip_install required packages
     - Select "Extension Wizard" module
         - Modules &rarr; Developer Tools &rarr; Extension Wizard
         - Or use "Find module" (magnifying glass next to "Modules:") and type "Extension Wizard"
@@ -30,7 +33,7 @@
     - Select the "Deep-Cardiac-Volumetric-Mesh/SlicerDeepCardiac" folder
     - Follow prompts (check everything & say yes)
 
-    "ROI pred" should be ready! (icon: <img src="SlicerDeepCardiac/RoiPred/Resources/Icons/RoiPred.png" width="20">)
+"ROI pred" should be ready! (icon: <img src="SlicerDeepCardiac/RoiPred/Resources/Icons/RoiPred.png" width="20">)
 
 ### Quick start: ROI pred
 

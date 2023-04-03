@@ -19,6 +19,5 @@ def install_missing_pkgs_in_slicer():
         try:
             importlib.import_module(pkg_name)
         except ModuleNotFoundError as e:
-            if slicer.util.confirmOkCancelDisplay("'ROI pred' module requires '{}' Python package. Click OK to install it now.".format(pkg_name)):
-                slicer.util.pip_install(install_command)
-                importlib.import_module(pkg_name)
+            slicer.util.pip_install(install_command)
+            importlib.import_module(pkg_name)
