@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>655</width>
-    <height>903</height>
+    <height>923</height>
    </rect>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
@@ -648,7 +648,7 @@
       <item>
        <widget class="QPushButton" name="saveOutputsInpButton">
         <property name="text">
-         <string>Save input node's outputs as .inp (in &quot;pytorch model exp_dir&quot;/3d_slicer_outputs)</string>
+         <string>Save input node's outputs as .inp (in &lt;heart model exp_dir&gt;/3d_slicer_outputs)</string>
         </property>
        </widget>
       </item>

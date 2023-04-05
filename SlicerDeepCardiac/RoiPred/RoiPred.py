@@ -12,7 +12,6 @@ from slicer.util import VTKObservationMixin
 import RoiPredSetup.RoiPredSetup
 RoiPredSetup.RoiPredSetup.install_missing_pkgs_in_slicer()
 
-import RoiPredLib.RoiPredLib as roi_pred_lib
 import numpy as np
 import torch
 import pyvista as pv
@@ -24,6 +23,11 @@ dcvm_parent_dir = os.path.join(curr_file_dir_path, '../..')
 if dcvm_parent_dir not in sys.path:
     sys.path.append(dcvm_parent_dir)
 import dcvm
+import RoiPredLib.RoiPredLib as roi_pred_lib
+
+# for debugging
+import importlib
+importlib.reload(roi_pred_lib)
 
 #
 # RoiPred
@@ -72,10 +76,13 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         Called when the user opens the module the first time and the widget is initialized.
         """
         ScriptedLoadableModuleWidget.setup(self)
+        
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.cropOutputNodeName = "RoiPred_crop_output"
         self.roiNodeName = "RoiPred_ROI"
-        self.outputSequenceBrowserNodeName = "RoiPred_model_sequence_browser"
+        self.cropOutputNodeName = "RoiPred_crop_output"
+        self.cropOutputSequenceNodeName = "RoiPred_crop_output_seq"
+        self.cropSequenceBrowserNodeName = "RoiPred_crop_sequence_browser"
+        self.outputSequenceBrowserNodeName = "RoiPred_output_sequence_browser"
 
         # Load widget from .ui file (created by Qt Designer).
         # Additional widgets can be instantiated manually and added to self.layout.
@@ -217,7 +224,6 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 if firstVolumeNode:
                     self._parameterNode.SetNodeReferenceID("cropInput", firstVolumeNode.GetID())
 
-
     def setParameterNode(self, inputParameterNode):
         """
         Set and observe parameter node.
@@ -320,6 +326,8 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # else:
         #     self.ui.templateFilenamePrefix.enabled = False
 
+        self.updateVolumeInfo()
+
         # All the GUI updates are done
         self._updatingGUIFromParameterNode = False
 
@@ -340,7 +348,6 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.cropInputSelector = self.ui.inputSequenceSelector
         self._parameterNode.SetNodeReferenceID("cropInput", self.cropInputSelector.currentNodeID)
 
-        self.updateVolumeInfo()
         self._parameterNode.SetParameter("inputSequenceOrVolume", "true" if self.ui.inputSequenceOrVolume.checked else "false")
         self._parameterNode.SetParameter("pytorchInputSpatialDim0", self.ui.pytorchInputSpatialDim0.text)
         self._parameterNode.SetParameter("pytorchInputSpatialDim1", self.ui.pytorchInputSpatialDim1.text)
@@ -355,6 +362,8 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._parameterNode.SetParameter("heartExpDir", self.ui.heartExpDir.directory)
         self._parameterNode.SetParameter("ca2ExpDir", self.ui.ca2ExpDir.directory)
         self._parameterNode.SetParameter("templateFilenamePrefix", self.ui.templateFilenamePrefix.text)
+
+        self.updateVolumeInfo()
 
         self._parameterNode.EndModify(wasModified)
 
@@ -417,7 +426,6 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         spatialDims = np.array([float(self.ui.pytorchInputSpatialDim0.text), float(self.ui.pytorchInputSpatialDim1.text), float(self.ui.pytorchInputSpatialDim2.text)])
         roiWindowSize = spatialDims*np.array([spacing, spacing, spacing]) # roi size defined in RAS coordinates, so it's agnostic to inputVolume spacing
         if self._parameterNode.GetNodeReference("roiNode") is None:
-
             roiNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsROINode")
             slicer.mrmlScene.AddNode(roiNode)
             roiNode.SetName(self.roiNodeName)
@@ -435,12 +443,6 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             roiNode.SetCenter([float(self.ui.roiR.text), float(self.ui.roiA.text), float(self.ui.roiS.text)])
 
     def onDeleteRoiNode(self, caller=None, event=None):
-        # # delete roiNode in this instance
-        # roiNode = self._parameterNode.GetNodeReference("roiNode")
-        # if roiNode:
-        #     self.removeObserver(roiNode, roiNode.PointModifiedEvent, self.updateRoiCenterGui)
-        #     slicer.mrmlScene.RemoveNode(roiNode)
-
         # delete all roiNode's with the default name
         for roiNode in slicer.util.getNodesByClass('vtkMRMLMarkupsROINode'):
             if roiNode.GetName() == self.roiNodeName:
@@ -536,7 +538,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         inputNodeName = self.cropInputSelector.currentNode().GetName()
         segmentationName = '{}_Segmentation'.format(inputNodeName)
         segmentationNode = [node for node in slicer.util.getNodesByClass('vtkMRMLSegmentationNode') if node.GetName() == segmentationName][0]
-        segmentationNode.GetDisplayNode().SetVisibility(self.ui.ca2Visibility.checked)    
+        segmentationNode.GetDisplayNode().SetVisibility(self.ui.ca2Visibility.checked)
 
     def onHeartModelLoadButton(self):
         self.progress_bar_and_run_time.start(maximum=1)
@@ -548,7 +550,6 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.pytorch_model_heart = dcvm.io.load_model(self._parameterNode.GetParameter("heartExpDir"), map_location=map_location)
         self._parameterNode.SetParameter("heartModelLoaded", "true")
 
-        # print('Loading done: {}'.format(self._parameterNode.GetParameter("heartExpDir")))
         self.progress_bar_and_run_time.end()
 
     def onCa2ModelLoadButton(self):
@@ -558,7 +559,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             map_location = torch.device('cuda')
         else:
             map_location = torch.device('cpu')
-        self.model_ca2 = dcvm.io.load_model(self._parameterNode.GetParameter("ca2ExpDir"), map_location=map_location)
+        self.pytorch_model_ca2 = dcvm.io.load_model(self._parameterNode.GetParameter("ca2ExpDir"), map_location=map_location)
         self._parameterNode.SetParameter("ca2ModelLoaded", "true")
 
         self.progress_bar_and_run_time.end()
@@ -568,8 +569,9 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         template_dir = os.path.join(dcvm_parent_dir, 'template_for_deform/lv_av_aorta')
         template_filename_prefix = self._parameterNode.GetParameter("templateFilenamePrefix")
-        self.verts_template_torch, self.laa_elems, self.laa_cell_types, self.laa_faces = dcvm.io.load_template_inference(template_dir, template_filename_prefix)
-        self.heart_mesh_keys = list(self.laa_elems.keys()) + list(self.laa_faces.keys())
+        self.verts_template_torch, self.heart_elems, self.heart_cell_types, self.heart_faces = dcvm.io.load_template_inference(template_dir, template_filename_prefix)
+        self.heart_mesh_keys = list(self.heart_elems.keys()) + list(self.heart_faces.keys())
+
         self._parameterNode.SetParameter("templateLoaded", "true")
         
         self.progress_bar_and_run_time.end()
@@ -578,292 +580,42 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # this may not be fully implemented yet
         if self._parameterNode.GetParameter("useGPU") == 'true':
             self.pytorch_model_heart = self.pytorch_model_heart.to(torch.device('cuda'))
-            self.model_ca2 = self.model_ca2.to(torch.device('cuda'))
+            self.pytorch_model_ca2 = self.pytorch_model_ca2.to(torch.device('cuda'))
         else:
             self.pytorch_model_heart = self.pytorch_model_heart.to(torch.device('cpu'))
-            self.model_ca2 = self.model_ca2.to(torch.device('cpu'))
-
-    def run_crop_volume_sequence(self):
-        # turn this into run_crop_volume_single and have a separate function to determine if we should run this multiple times for sequence
-        # actually, probably better to just create a separate function for sequences b/c maybe we shouldn't keep creating and deleting the crop parameter node. Also may be inconsistent across image volumes?
-
-        # choose this based on toggle status, not the cropInputNode type??
-        cropInputNode = self._parameterNode.GetNodeReference("cropInput")
-
-        if not '{}_seq'.format(self.cropOutputNodeName) in [sequenceNode.GetName() for sequenceNode in slicer.util.getNodesByClass('vtkMRMLSequenceNode')]:
-            cropOutputNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSequenceNode", '{}_seq'.format(self.cropOutputNodeName))
-        else:
-            cropOutputNode = [sequenceNode for sequenceNode in slicer.util.getNodesByClass('vtkMRMLSequenceNode') if sequenceNode.GetName() == '{}_seq'.format(self.cropOutputNodeName)][0]
-            cropOutputNode.RemoveAllDataNodes()
-
-        cropVolumeParameters = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLCropVolumeParametersNode")
-        cropVolumeParameters.SetROINodeID(self._parameterNode.GetNodeReference("roiNode").GetID())
-        
-        min_spacing = np.array(cropInputNode.GetNthDataNode(0).GetSpacing()).min()
-        spacing = float(self._parameterNode.GetParameter("spacing"))
-        zoomFactor = spacing/min_spacing
-        cropVolumeParameters.SetSpacingScalingConst(zoomFactor)
-        cropVolumeParameters.SetIsotropicResampling(True)
-
-        dummyCropOutputVolumeNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLScalarVolumeNode", "dummyCropOutputVolumeNode")
-        
-        for idx in range(cropInputNode.GetNumberOfDataNodes()):
-            cropVolumeParameters.SetInputVolumeNodeID(cropInputNode.GetNthDataNode(idx).GetID())
-            cropVolumeParameters.SetOutputVolumeNodeID(dummyCropOutputVolumeNode.GetID())
-            slicer.modules.cropvolume.logic().Apply(cropVolumeParameters)
-            cropOutputNode.SetDataNodeAtValue(dummyCropOutputVolumeNode, str(idx))
-
-        sequenceBrowserNodeName = "RoiPred_crop_sequence_browser"
-        if not sequenceBrowserNodeName in [node.GetName() for node in slicer.util.getNodesByClass('vtkMRMLSequenceBrowserNode')]:
-            sequenceBrowserNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSequenceBrowserNode", sequenceBrowserNodeName)
-            sequenceBrowserNode.AddSynchronizedSequenceNode(cropOutputNode)
-        else:
-            sequenceBrowserNode = [node for node in slicer.util.getNodesByClass('vtkMRMLSequenceBrowserNode') if node.GetName() == sequenceBrowserNodeName][0]
-            # sequenceBrowserNode.RemoveAllProxyNodes() # this must come before RemoveAllSequencesNodes to properly remove ProxyNodes (associated with SequenceNodes)
-            # sequenceBrowserNode.RemoveAllSequenceNodes()
-        
-        # For displaying crop output sequence.. probably don't want to do this b/c final output model sequence will be in original image coordinates
-        # slicer.modules.sequences.toolBar().setActiveBrowserNode(sequenceBrowserNode)
-        # mergedProxyNode = sequenceBrowserNode.GetProxyNode(cropOutputNode)
-        # slicer.util.setSliceViewerLayers(background=mergedProxyNode)
-        
-        # CropVolumeSequence.CropVolumeSequenceLogic().run(cropInputNode, cropOutputNode, cropVolumeParameters)
-
-        slicer.mrmlScene.RemoveNode(cropVolumeParameters)
-        slicer.mrmlScene.RemoveNode(dummyCropOutputVolumeNode)
-        self._parameterNode.SetNodeReferenceID("cropOutput", cropOutputNode.GetID())
-        self.updateVolumeInfo()
-
-    def run_crop_volume_single(self):
-        cropInputNode = self._parameterNode.GetNodeReference("cropInput")
-
-        if not self.cropOutputNodeName in [volumeNode.GetName() for volumeNode in slicer.util.getNodesByClass('vtkMRMLScalarVolumeNode')]:
-            cropOutputNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLScalarVolumeNode", self.cropOutputNodeName)
-        else:
-            cropOutputNode = [volumeNode for volumeNode in slicer.util.getNodesByClass('vtkMRMLScalarVolumeNode') if volumeNode.GetName() == self.cropOutputNodeName][0]
-
-        cropVolumeParameters = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLCropVolumeParametersNode")
-        cropVolumeParameters.SetInputVolumeNodeID(cropInputNode.GetID())
-        cropVolumeParameters.SetOutputVolumeNodeID(cropOutputNode.GetID())
-        cropVolumeParameters.SetROINodeID(self._parameterNode.GetNodeReference("roiNode").GetID())
-        
-        min_spacing = np.array(cropInputNode.GetSpacing()).min()
-        spacing = float(self._parameterNode.GetParameter("spacing"))
-        zoomFactor = spacing/min_spacing
-        cropVolumeParameters.SetSpacingScalingConst(zoomFactor)
-        cropVolumeParameters.SetIsotropicResampling(True)
-
-        slicer.modules.cropvolume.logic().Apply(cropVolumeParameters)
-
-        slicer.mrmlScene.RemoveNode(cropVolumeParameters)
-        self._parameterNode.SetNodeReferenceID("cropOutput", cropOutputNode.GetID())
-        self.updateVolumeInfo()
-        
-        # slicer.modules.cropvolume.logic().FitROIToInputVolume(cropVolumeParameters)
-
-    # if we were to ever use logic appropriately, we would probably only need to move run_*_single functions and possibly update_*_from_* functions (after some editing)
-    def run_heart_single(self, inputVolumeNode):
-        cropInputNode = self._parameterNode.GetNodeReference("cropInput")
-
-        img = slicer.util.arrayFromVolume(inputVolumeNode) # RAS
-        img = img.transpose(2,1,0) # b/c vtk/Slicer flips when getting array from volume
-        mat = vtk.vtkMatrix4x4(); inputVolumeNode.GetIJKToRASDirectionMatrix(mat)
-        if mat.GetElement(0,0) == -1: # flip based on IJK to RAS DirectionMatrix
-            img = np.flip(img, axis=0)
-        if mat.GetElement(1,1) == -1:
-            img = np.flip(img, axis=1)
-        if (img.max() - img.min()) > 1:
-            img = dcvm.transforms.ct_normalize(img, min_bound=-158.0, max_bound=864.0)
-        
-        img = torch.Tensor(np.ascontiguousarray(img))
-        img = img.to(next(self.pytorch_model_heart.parameters()).device)[None,None,:,:,:]
-        img_size = list(img.squeeze().shape)
-
-        with torch.no_grad():
-            output = self.pytorch_model_heart(img)
-            # print(img.device)
-            displacement_field_tuple = output[0]
-            interp_field_list = dcvm.transforms.interpolate_rescale_field_torch(displacement_field_tuple, [self.verts_template_torch.to(next(self.pytorch_model_heart.parameters()).device).unsqueeze(0)], img_size=img_size)
-            transformed_verts_np = dcvm.transforms.move_verts_with_field([self.verts_template_torch.to(next(self.pytorch_model_heart.parameters()).device).unsqueeze(0)], interp_field_list)[0].squeeze().cpu().numpy()
-
-        transformed_verts_np *= float(self._parameterNode.GetParameter('spacing')) # assume 1mm/voxel --> 1*spacing mm/voxel
-        # transformed_verts_np += - np.array(cropInputNode.GetOrigin())[None,:] + np.array(inputVolumeNode.GetOrigin())[None,:] # fix this for sequence DPDP
-        transformed_verts_np += np.array(inputVolumeNode.GetOrigin())[None,:]
-
-        mesh_pv_dict = {}
-        for key in self.heart_mesh_keys:
-            if key in self.laa_elems.keys():
-                mesh_pv_dict[key] = dcvm.ops.mesh_to_UnstructuredGrid(transformed_verts_np, self.laa_elems[key], self.laa_cell_types[key])
-            elif key in self.laa_faces.keys():
-                mesh_pv_dict[key] = dcvm.ops.mesh_to_PolyData(transformed_verts_np, self.laa_faces[key])
-        
-        return mesh_pv_dict
-    
-    def run_ca2_single(self, inputVolumeNode):
-        img = slicer.util.arrayFromVolume(inputVolumeNode) # RAS
-        img = img.transpose(2,1,0) # b/c vtk/Slicer flips when getting array from volume
-        mat = vtk.vtkMatrix4x4(); inputVolumeNode.GetIJKToRASDirectionMatrix(mat)
-        if mat.GetElement(0,0) == -1: # flip based on IJK to RAS DirectionMatrix
-            img = np.flip(img, axis=0)
-        if mat.GetElement(1,1) == -1:
-            img = np.flip(img, axis=1)
-        if img.max() - img.min() > 1:
-            img = dcvm.transforms.ct_normalize(img, min_bound=-158.0, max_bound=864.0)
-        
-        img = torch.Tensor(np.ascontiguousarray(img))
-        img = img.to(next(self.model_ca2.parameters()).device)[None,None,:,:,:]
-
-        with torch.no_grad():
-            output = self.model_ca2(img) # output: [1,1,128,128,128]
-        
-        ca2_cropped_pv = dcvm.ops.seg_to_polydata(output.squeeze().cpu().numpy())
-        ca2_pv = ca2_cropped_pv.copy()
-        ca2_pv.points *= float(self._parameterNode.GetParameter('spacing'))
-        ca2_pv.points += np.array(inputVolumeNode.GetOrigin())[None,:]
-
-        if isinstance(self.cropInputSelector.currentNode(), slicer.vtkMRMLSequenceNode):
-            inputVolumeNode = self.cropInputSelector.currentNode().GetNthDataNode(0)
-        elif isinstance(self.cropInputSelector.currentNode(), slicer.vtkMRMLScalarVolumeNode):
-            inputVolumeNode = self.cropInputSelector.currentNode()
-        dimensions = inputVolumeNode.GetImageData().GetDimensions()
-        ca2_seg = dcvm.ops.polydata_to_seg(ca2_pv, dims=dimensions[::-1], spacing=[1,1,1], origin=[0,0,0])
-        
-        return ca2_pv, ca2_seg
-    
-    def update_model_nodes_from_pv(self, mesh_pv_dict, modelNames_dict):
-        if not set(modelNames_dict.values()) <= set([modelNode.GetName() for modelNode in slicer.util.getNodesByClass('vtkMRMLModelNode')]):
-            # create separate model node for each mesh component here (lv, aorta, l1, l2, l3, etc.)
-            for (key, mesh_pv), color in zip(mesh_pv_dict.items(), colors):
-                modelNode = slicer.modules.models.logic().AddModel(pv.PolyData())
-                modelNode.SetName(modelNames_dict[key])
-                modelNode.SetAndObserveMesh(mesh_pv)
-                modelNode.GetDisplayNode().SetColor(*color)
-                modelNode.GetDisplayNode().SetEdgeVisibility(True)
-                modelNode.GetDisplayNode().SetSliceIntersectionVisibility(True)
-                modelNode.GetDisplayNode().SetSliceIntersectionOpacity(0.3)
-                modelNode.GetDisplayNode().SetSliceIntersectionThickness(5)
-                modelNode.GetDisplayNode().SetVisibility(True)
-        else:
-            # update existing model nodes if they exist
-            modelNodes_dict = {key: [node for node in slicer.util.getNodesByClass('vtkMRMLModelNode') if node.GetName() == modelName][0] for key, modelName in modelNames_dict.items()}
-            for key, modelNode in modelNodes_dict.items():
-                modelNode.SetAndObserveMesh(mesh_pv_dict[key])
-                modelNode.GetDisplayNode().SetVisibility(True)
-        self._parameterNode.SetParameter("heartVisibility", "true")
-
-    def update_seg_node_from_np(self, segmentArray):
-        inputNode = self.cropInputSelector.currentNode()
-        inputNodeName = inputNode.GetName()
-
-        segmentationNodes = [node for node in slicer.util.getNodesByClass('vtkMRMLSegmentationNode') if '{}_Segmentation'.format(inputNodeName) in node.GetName()]
-        if len(segmentationNodes) == 0:
-            # create new Segmentation node
-            segmentationNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
-            segmentationNode.SetName('{}_Segmentation'.format(inputNodeName))
-            segmentationNode.CreateDefaultDisplayNodes()
-        else:
-            # update existing Segmentation node
-            segmentationNode = segmentationNodes[0]
-        
-        segment_name = "{}_ca2".format(inputNodeName)
-        
-        # create new Segment only if segment_name doesn't exist in Segmentation already
-        if segmentationNode.GetSegmentation().GetSegmentIdBySegmentName(segment_name) == '':
-            segmentationNode.GetSegmentation().AddEmptySegment(segment_name)
-
-        # grab segmentNode to update
-        segmentId = segmentationNode.GetSegmentation().GetSegmentIdBySegmentName(segment_name)
-        segmentNode = segmentationNode.GetSegmentation().GetSegment(segmentId)
-        segmentNode.SetColor((177/256, 122/256, 101/256))
-
-        # update segmentNode
-        segmentArray = segmentArray.transpose([2,1,0])
-        slicer.util.updateSegmentBinaryLabelmapFromArray(segmentArray, segmentationNode, segmentId, inputNode)
-
-        # update plot info
-        # segmentationNode.GetSegmentation().SetConversionParameter("Surface smoothing", "False") # I wish I could do this, but doesn't work..
-        segmentationNode.GetSegmentation().SetConversionParameter("Smoothing factor", "0.0")
-        segmentationNode.CreateClosedSurfaceRepresentation()
-        segmentationNode.GetDisplayNode().SetVisibility(True)
-        # segmentationNode.GetDisplayNode().SetOpacity(0.5)
-        self._parameterNode.SetParameter("ca2Visibility", "true")
-
-    # def organize_subject_hierarchy(self):
-    #     '''
-    #     for each volume_node or volume_sequence_node:
-    #     1. create a subject item with the same name
-    #     2. place volume inside the subject
-    #     3. place all other outputs under the same subject
-    #     '''
-    #     shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
-    #     sceneId = shNode.GetSceneItemID()
-    #     childIds = vtk.vtkIdList() # dummy to save Ids
-    #     shNode.GetItemChildren(sceneId, childIds) # for all children
-    #     for itemIdIndex in range(childIds.GetNumberOfIds()):
-    #         shItemId = childIds.GetId(itemIdIndex)
-    #         if isinstance(shNode.GetItemDataNode(shItemId), slicer.vtkMRMLScalarVolumeNode):
-    #             subjectId = shNode.CreateSubjectItem(sceneId, shNode.GetItemName(shItemId))
-    #             shNode.SetItemParent(shItemId, subjectId)
-    #         if isinstance(shNode.GetItemDataNode(shItemId), slicer.vtkMRMLSequenceNode):
-    #             seqDataNode0 = shNode.GetItemDataNode(shItemId).GetNthDataNode(0)
-    #             if isinstance(seqDataNode0, slicer.vtkMRMLScalarVolumeNode):
-    #                 patient_num = seqDataNode0.GetName().split('_phase')[0]
-    #                 subjectId = shNode.CreateSubjectItem(sceneId, patient_num)
-    #                 shNode.SetItemParent(shItemId, subjectId)
-    #             pass
-
-    def put_models_in_folder(self, inputNodeName, modelNames_dict):
-        ''' we do this to allow for easy grouping of visualization '''
-        shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
-
-        # check if folder exists
-        folder_name = "{}_heart".format(inputNodeName)
-
-        create_new_folder = True
-        childIds = vtk.vtkIdList() # dummy to save Ids
-        shNode.GetItemChildren(shNode.GetSceneItemID(), childIds)
-        for itemIdIndex in range(childIds.GetNumberOfIds()): # for all children of the main Subject Hierarchy
-            shItemId = childIds.GetId(itemIdIndex)
-            if shNode.GetItemName(shItemId) == folder_name:
-                grandChildIds = vtk.vtkIdList()
-                shNode.GetItemChildren(shItemId, grandChildIds)
-                if grandChildIds.GetNumberOfIds() > 0:
-                    modelFolderItemId = shItemId
-                    create_new_folder = False
-        if create_new_folder:
-            modelFolderItemId = shNode.CreateFolderItem(shNode.GetSceneItemID(), folder_name)
-        
-        childIds = vtk.vtkIdList() # dummy to save Ids
-        shNode.GetItemChildren(shNode.GetSceneItemID(), childIds)
-        for itemIdIndex in range(childIds.GetNumberOfIds()): # for all children of the main Subject Hierarchy
-            shItemId = childIds.GetId(itemIdIndex)
-            dataNode = shNode.GetItemDataNode(shItemId)
-            if isinstance(dataNode, slicer.vtkMRMLModelNode): # check dataNode is modelNode
-                if dataNode.GetName() in list(modelNames_dict.values()): # get dataNode's name is in the modelNames_dict
-                    shNode.SetItemParent(shItemId, modelFolderItemId)
-
-        # folder display manipulation
-        pluginHandler = slicer.qSlicerSubjectHierarchyPluginHandler().instance()
-        folderPlugin = pluginHandler.pluginByName("Folder")
-        folderPlugin.setDisplayVisibility(modelFolderItemId, 1)
+            self.pytorch_model_ca2 = self.pytorch_model_ca2.to(torch.device('cpu'))
 
     def onCropAndRunButton(self):
         self.progress_bar_and_run_time.start(maximum=1)
 
-        cropInputNode = self._parameterNode.GetNodeReference("cropInput")
-
-        start = time.time()
-        if self._parameterNode.GetParameter("inputSequenceOrVolume") == "true":
-            self.run_crop_volume_sequence()
-        else:
-            self.run_crop_volume_single()
-        cropOutputNode = self._parameterNode.GetNodeReference("cropOutput")
-        end = time.time()
-        print('Crop done: {} seconds'.format(end-start))
-        
+        # define names for pytorch output nodes (names change based on input node, that's why they're defined here)
         inputNodeName = self.cropInputSelector.currentNode().GetName()
-        if self._parameterNode.GetParameter("templateLoaded") == "true":
+        if self._parameterNode.GetParameter("templateLoaded") == "true": # to prevent issues for ca2_prediction_only cases
             modelNames_dict = {key: '{}_{}'.format(inputNodeName, key) for key in self.heart_mesh_keys}
+        heartModelFolderName = "{}_heart".format(inputNodeName)
+        segmentationNodeName = "{}_Segmentation".format(inputNodeName)
+        segmentName = "{}_ca2".format(inputNodeName)
+
+        # define relevant inputs
+        cropInputNode = self._parameterNode.GetNodeReference("cropInput")
+        roiNode = self._parameterNode.GetNodeReference("roiNode")
+        spacing = [float(self._parameterNode.GetParameter("spacing"))]*3
+        if self._parameterNode.GetParameter("heartModelLoaded") == "true":
+            device = next(self.pytorch_model_heart.parameters()).device
+        elif self._parameterNode.GetParameter("ca2ModelLoaded") == "true":
+            device = next(self.pytorch_model_ca2.parameters()).device
+
+        # Cropping
+        if self._parameterNode.GetParameter("inputSequenceOrVolume") == "false": # single volume image
+            cropped_img_torch = roi_pred_lib.run_crop_volume_single(cropInputNode, roiNode, spacing=spacing, device=device) # (n_batch, n_ch, x, y, z)
+            cropOutputNode = roi_pred_lib.update_cropOutputNode(cropped_img_torch, self.cropOutputNodeName, roiNode, spacing=spacing)
+        else: # sequence of volume images
+            cropped_img_torch_list = roi_pred_lib.run_crop_volume_sequence(cropInputNode, roiNode, spacing=spacing, device=device) # list((n_batch, n_ch, x, y, z))
+            cropOutputNode = roi_pred_lib.update_cropOutputSequenceNode(cropped_img_torch_list, self.cropOutputSequenceNodeName, roiNode, spacing=spacing)
+            roi_pred_lib.update_cropSequenceBrowserNode(self.cropSequenceBrowserNodeName, cropOutputNode)
+        self._parameterNode.SetNodeReferenceID("cropOutput", cropOutputNode.GetID())
+
+        # Start Pytorch Run
 
         # turn off visibility for all existing model/segmentation nodes. Only turn on visibility for new model/segmentation nodes
         for modelNode in slicer.util.getNodesByClass('vtkMRMLModelNode'):
@@ -871,78 +623,83 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         for segmentationNode in slicer.util.getNodesByClass('vtkMRMLSegmentationNode'):
             segmentationNode.GetDisplayNode().SetVisibility(False)
 
-        start = time.time()
-
-        # sequence
-        if isinstance(cropOutputNode, slicer.vtkMRMLSequenceNode):
-            tempModelNode = slicer.modules.models.logic().AddModel(pv.PolyData())
-
-            if not set(modelNames_dict.values()) <= set([modelNode.GetName() for modelNode in slicer.util.getNodesByClass('vtkMRMLSequenceNode')]): # subset
-                # create separate sequence node for each mesh component here (lv, aorta, l1, l2, l3, etc.)
-                modelSequenceNodes_dict = {key: slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSequenceNode", modelName) for key, modelName in modelNames_dict.items()}
-            else:
-                # update old sequence nodes if they exist
-                modelSequenceNodes_dict = {key: [node for node in slicer.util.getNodesByClass('vtkMRMLSequenceNode') if node.GetName() == modelName][0] for key, modelName in modelNames_dict.items()}
-                for node in modelSequenceNodes_dict.values():
-                    node.RemoveAllDataNodes()
-            
-            # add / modify data in sequence
-            for idx in range(cropOutputNode.GetNumberOfDataNodes()):
-                mesh_pv_dict = self.run_heart_single(cropOutputNode.GetNthDataNode(idx))
-                
-                for key in self.heart_mesh_keys:
-                    tempModelNode.SetName('dummy_{}_{}'.format(modelNames_dict[key], idx))
-                    tempModelNode.SetAndObserveMesh(mesh_pv_dict[key])
-                    modelSequenceNodes_dict[key].SetDataNodeAtValue(tempModelNode, str(idx))
-
-            slicer.mrmlScene.RemoveNode(tempModelNode)
-            
-            # Add default SequenceBrowser behavior (add image and all meshes for synced display)
-            if not self.outputSequenceBrowserNodeName in [node.GetName() for node in slicer.util.getNodesByClass('vtkMRMLSequenceBrowserNode')]:
-                sequenceBrowserNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSequenceBrowserNode", self.outputSequenceBrowserNodeName)
-                sequenceBrowserNode.SetPlaybackRateFps(2.0) # slower b/c synced with model
-                for modelSequenceNode in modelSequenceNodes_dict.values():
-                    sequenceBrowserNode.AddSynchronizedSequenceNode(modelSequenceNode)
-                sequenceBrowserNode.AddSynchronizedSequenceNode(cropInputNode) # original image
-            else:
-                sequenceBrowserNode = [node for node in slicer.util.getNodesByClass('vtkMRMLSequenceBrowserNode') if node.GetName() == self.outputSequenceBrowserNodeName][0]
-            
-            # need to set default display properties on proxyNodes
-            for sequenceNode, color in zip(modelSequenceNodes_dict.values(), roi_pred_lib.colors):
-                proxyNode = sequenceBrowserNode.GetProxyNode(sequenceNode)
-                proxyNode.GetDisplayNode().SetColor(*color)
-                proxyNode.GetDisplayNode().SetEdgeVisibility(True)
-                proxyNode.GetDisplayNode().SetSliceIntersectionVisibility(True)
-                proxyNode.GetDisplayNode().SetSliceIntersectionOpacity(0.3)
-                modelNode.GetDisplayNode().SetSliceIntersectionThickness(5)
-                proxyNode.GetDisplayNode().SetVisibility(True)
-            
-            # For setting active sequence browser node to img + model sequence
-            slicer.modules.sequences.toolBar().setActiveBrowserNode(sequenceBrowserNode)
-            imgProxyNode = sequenceBrowserNode.GetProxyNode(cropInputNode)
-            slicer.util.setSliceViewerLayers(background=imgProxyNode)
-
-            self._parameterNode.SetParameter("heartRunCompleted", "true")
-        
         # volume
-        elif isinstance(cropOutputNode, slicer.vtkMRMLScalarVolumeNode):
+        if isinstance(cropInputNode, slicer.vtkMRMLScalarVolumeNode):
+            # pre-processing img
+            pytorch_input_img = roi_pred_lib.preprocess_img(cropped_img_torch)
+
+            # run_heart_single only if heart_model and template are loaded
             if (self._parameterNode.GetParameter("heartModelLoaded") == "true") and (self._parameterNode.GetParameter("templateLoaded") == "true"):
-                mesh_pv_dict = self.run_heart_single(cropOutputNode)
-                self.update_model_nodes_from_pv(mesh_pv_dict, modelNames_dict)
+                mesh_pv_dict = roi_pred_lib.run_heart_single(
+                    self.pytorch_model_heart,
+                    pytorch_input_img,
+                    self.verts_template_torch, self.heart_elems, self.heart_cell_types, self.heart_faces,
+                    origin_translate = - np.array(cropInputNode.GetOrigin()) + np.array(cropOutputNode.GetOrigin()),
+                    downsample_ratio = spacing,
+                )
+                modelNodes_dict = roi_pred_lib.update_model_nodes_from_pv_dict(mesh_pv_dict, modelNames_dict)
+                roi_pred_lib.update_model_nodes_display(list(modelNodes_dict.values()))
+                roi_pred_lib.put_models_in_folder(heartModelFolderName, modelNames_dict)
+                self._parameterNode.SetParameter("heartVisibility", "true")
                 self._parameterNode.SetParameter("heartRunCompleted", "true")
 
+            # run_ca2_single only if ca2_model is loaded
             if self._parameterNode.GetParameter("ca2ModelLoaded") == "true":
-                ca2_pv, ca2_seg = self.run_ca2_single(cropOutputNode)
-                # self.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'})
-                self.update_seg_node_from_np(ca2_seg)
+                ca2_pv, ca2_seg = roi_pred_lib.run_ca2_single(
+                    self.pytorch_model_ca2,
+                    pytorch_input_img,
+                    cropInputNode,
+                    origin_translate = - np.array(cropInputNode.GetOrigin()) + np.array(cropOutputNode.GetOrigin()),
+                    downsample_ratio = spacing,
+                )
+                # roi_pred_lib.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'}) # for debugging. pv-->model conversion implemented before array-->segment
+                segmentationNode = roi_pred_lib.update_seg_node_from_np(ca2_seg, segmentationNodeName, segmentName, cropInputNode)
+                roi_pred_lib.update_seg_node_display(segmentationNode, [segmentName])
+                self._parameterNode.SetParameter("ca2Visibility", "true")
                 self._parameterNode.SetParameter("ca2RunCompleted", "true")
 
             slicer.util.setSliceViewerLayers(background=cropInputNode)
 
-        self.put_models_in_folder(inputNodeName, modelNames_dict)
+        # sequence
+        elif isinstance(cropInputNode, slicer.vtkMRMLSequenceNode):
+            # pre-processing imgs
+            pytorch_input_img_list = [roi_pred_lib.preprocess_img(img) for img in cropped_img_torch_list]
 
-        end = time.time()
-        print('Model run(s) done: {} seconds'.format(end-start))
+            if (self._parameterNode.GetParameter("heartModelLoaded") == "true") and (self._parameterNode.GetParameter("templateLoaded") == "true"):
+                mesh_pv_dict_list = []
+                for pytorch_input_img in pytorch_input_img_list:
+                    mesh_pv_dict = roi_pred_lib.run_heart_single(
+                        self.pytorch_model_heart,
+                        pytorch_input_img,
+                        self.verts_template_torch, self.heart_elems, self.heart_cell_types, self.heart_faces,
+                        origin_translate = - np.array(cropInputNode.GetNthDataNode(0).GetOrigin()) + np.array(cropOutputNode.GetNthDataNode(0).GetOrigin()),
+                        downsample_ratio = spacing,
+                    )
+                    mesh_pv_dict_list.append(mesh_pv_dict)
+                modelSequenceNodes_dict = roi_pred_lib.update_model_sequence_nodes_from_pv_dict_list(mesh_pv_dict_list, modelNames_dict)
+                roi_pred_lib.update_outputSequenceBrowserNode(self.outputSequenceBrowserNodeName, cropInputNode=cropInputNode, modelSequenceNodes_dict=modelSequenceNodes_dict)
+                roi_pred_lib.put_models_in_folder(heartModelFolderName, modelNames_dict)
+                self._parameterNode.SetParameter("heartVisibility", "true")
+                self._parameterNode.SetParameter("heartRunCompleted", "true")
+
+            # run_ca2_single only if ca2_model is loaded
+            if self._parameterNode.GetParameter("ca2ModelLoaded") == "true":
+                ca2_seg_list = []
+                for pytorch_input_img in pytorch_input_img_list:
+                    ca2_pv, ca2_seg = roi_pred_lib.run_ca2_single(
+                        self.pytorch_model_ca2,
+                        pytorch_input_img,
+                        cropInputNode,
+                        origin_translate = - np.array(cropInputNode.GetNthDataNode(0).GetOrigin()) + np.array(cropOutputNode.GetNthDataNode(0).GetOrigin()),
+                        downsample_ratio = spacing,
+                    )
+                    ca2_seg_list.append(ca2_seg)
+                # # roi_pred_lib.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'}) # for debugging. pv-->model conversion implemented before array-->segment
+                # print([ca2_seg.sum() for ca2_seg in ca2_seg_list])
+                segSequenceNode = roi_pred_lib.update_seg_sequence_node_from_seg_list(ca2_seg_list, segmentationNodeName, segmentName, cropInputNode)
+                roi_pred_lib.update_outputSequenceBrowserNode(self.outputSequenceBrowserNodeName, cropInputNode=cropInputNode, segSequenceNode=segSequenceNode)
+                self._parameterNode.SetParameter("ca2Visibility", "true")
+                self._parameterNode.SetParameter("ca2RunCompleted", "true")
 
         self.progress_bar_and_run_time.end()
 

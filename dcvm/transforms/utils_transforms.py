@@ -32,8 +32,8 @@ class DimensionConverterDP():
         self.shape = np.array(shape) - 1 # minus 1 here b/c if img has size 64, we want [0,63] range
     
     def to_orig_img_dim(self, x):
-        m = self.shape/2
-        b = self.shape/2
+        m = torch.tensor(self.shape/2, dtype=torch.get_default_dtype(), device=x.device)
+        b = torch.tensor(self.shape/2, dtype=torch.get_default_dtype(), device=x.device)
         
         y = m*x + b
         
