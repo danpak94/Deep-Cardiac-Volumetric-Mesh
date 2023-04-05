@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import time
+import importlib
 
 import vtk
 import qt
@@ -10,24 +11,28 @@ from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 
 import RoiPredSetup.RoiPredSetup
-RoiPredSetup.RoiPredSetup.install_missing_pkgs_in_slicer()
-
-import numpy as np
-import torch
-import pyvista as pv
-import matplotlib
-colors = matplotlib.colormaps['Set1'].colors
+importlib.reload(RoiPredSetup.RoiPredSetup)
 
 curr_file_dir_path = os.path.dirname(os.path.realpath(__file__))
 dcvm_parent_dir = os.path.join(curr_file_dir_path, '../..')
 if dcvm_parent_dir not in sys.path:
     sys.path.append(dcvm_parent_dir)
-import dcvm
-import RoiPredLib.RoiPredLib as roi_pred_lib
 
-# for debugging
-import importlib
-importlib.reload(roi_pred_lib)
+try:
+    import numpy as np
+    import torch
+    import pyvista as pv
+    import matplotlib
+    colors = matplotlib.colormaps['Set1'].colors
+
+    import dcvm
+    import RoiPredLib.RoiPredLib as roi_pred_lib
+    importlib.reload(roi_pred_lib)
+
+    failed_any_import = False
+except:
+    print('RoiPred: need to pip_install required packages. (Re-)enter or reload module to trigger installation.')
+    failed_any_import = True
 
 #
 # RoiPred
@@ -76,8 +81,12 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         Called when the user opens the module the first time and the widget is initialized.
         """
         ScriptedLoadableModuleWidget.setup(self)
+
+        installed_any_pkg, cancelled_any_installation = RoiPredSetup.RoiPredSetup.install_missing_pkgs_in_slicer()
+        if installed_any_pkg and (not cancelled_any_installation): ScriptedLoadableModuleWidget.onReload(self)
+        self.first_enter = True
         
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = 'cuda'
         self.roiNodeName = "RoiPred_ROI"
         self.cropOutputNodeName = "RoiPred_crop_output"
         self.cropOutputSequenceNodeName = "RoiPred_crop_output_seq"
@@ -87,6 +96,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Load widget from .ui file (created by Qt Designer).
         # Additional widgets can be instantiated manually and added to self.layout.
         uiWidget = slicer.util.loadUI(self.resourcePath('UI/RoiPred.ui'))
+        self.uiWidget = uiWidget
         self.layout.addWidget(uiWidget)
         self.ui = slicer.util.childWidgetVariables(uiWidget)
 
@@ -161,7 +171,10 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.saveCollapsibleButton.checked = False
         self.ui.volumeInfoCollapsibleButton.checked = False
 
-        self.progress_bar_and_run_time = roi_pred_lib.ProgressBarAndRunTime(self.ui.progressBar)
+        try:
+            self.progress_bar_and_run_time = roi_pred_lib.ProgressBarAndRunTime(self.ui.progressBar)
+        except:
+            uiWidget.setEnabled(False)
         
         # Make sure parameter node is initialized (needed for module reload)
         # self.parameterNodeObserved = False
@@ -178,6 +191,11 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         Called each time the user opens this module.
         If we update this, need to restart 3D slicer to see the effects
         """
+        if not self.first_enter:
+            installed_any_pkg, cancelled_any_installation = RoiPredSetup.RoiPredSetup.install_missing_pkgs_in_slicer()
+            if installed_any_pkg and (not cancelled_any_installation): ScriptedLoadableModuleWidget.onReload(self)
+        self.first_enter = False
+
         # Make sure parameter node exists and observed
         self.initializeParameterNode()
 
@@ -857,10 +875,7 @@ class RoiPredLogic(ScriptedLoadableModuleLogic):
         if not parameterNode.GetParameter("croppedVolumeDimensionsDisplay2"):
             parameterNode.SetParameter("croppedVolumeDimensionsDisplay2", "0")
         if not parameterNode.GetParameter("useGPU"):
-            if torch.cuda.is_available():
-                parameterNode.SetParameter("useGPU", "true")
-            else:
-                parameterNode.SetParameter("useGPU", "false")
+            parameterNode.SetParameter("useGPU", "true")
         
     def process(self, inputVolume, outputVolume, imageThreshold, invert=False, showResult=True):
         pass
