@@ -29,22 +29,6 @@ try:
     import HelperLib as helper_lib
     import RoiPredLib.RoiPredLib as roi_pred_lib
     importlib.reload(roi_pred_lib)
-
-    import types
-    def reload_package(package, initial_name=None):
-        """Recursively reload all modules in the given package."""
-        if initial_name is None:
-            initial_name = package.__package__
-        importlib.reload(package)
-        for _, module in package.__dict__.items():
-            if isinstance(module, types.ModuleType) and module.__name__.startswith(initial_name):
-                reload_package(module, initial_name=initial_name)
-    reload_package(dcvm)
-    reload_package(dcvm)
-    reload_package(dcvm)
-    reload_package(helper_lib)
-    reload_package(helper_lib)
-    reload_package(helper_lib)
 except:
     traceback.print_exc()
     print(' ')
