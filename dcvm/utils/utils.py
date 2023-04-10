@@ -48,4 +48,3 @@ def setup_torch(cuda_available):
     torch.manual_seed(1234)
     if cuda_available: torch.cuda.manual_seed(230)
     torch.set_default_dtype(torch.float32)
-

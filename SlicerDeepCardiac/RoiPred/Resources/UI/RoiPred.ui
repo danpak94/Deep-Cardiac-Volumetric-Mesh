@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>655</width>
-    <height>923</height>
+    <height>950</height>
    </rect>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
@@ -17,13 +17,13 @@
       <string>Setup</string>
      </property>
      <property name="checked">
-      <bool>false</bool>
+      <bool>true</bool>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_5">
       <item>
        <widget class="QPushButton" name="downloadDataButton">
         <property name="text">
-         <string>Download pre-trained model weights &amp;&amp; mesh templates</string>
+         <string>Download &amp;&amp; Relocate pre-trained model weights &amp;&amp; mesh templates</string>
         </property>
        </widget>
       </item>
@@ -267,8 +267,25 @@
           <property name="text">
            <string>roi</string>
           </property>
+          <property name="iconSize">
+           <size>
+            <width>16</width>
+            <height>16</height>
+           </size>
+          </property>
           <property name="checked">
            <bool>false</bool>
+          </property>
+          <property name="indicatorIcon">
+           <iconset resource="../Icons/RoiPredIcons.qrc">
+            <normaloff>:/Icons/VisibleOn.png</normaloff>
+            <normalon>:/Icons/VisibleOff.png</normalon>:/Icons/VisibleOn.png</iconset>
+          </property>
+          <property name="indicatorIconSize">
+           <size>
+            <width>16</width>
+            <height>16</height>
+           </size>
           </property>
          </widget>
         </item>
@@ -601,11 +618,31 @@
           <property name="toolTip">
            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;To enable: complete one run of &amp;quot;Crop &amp;amp; Run loaded models(s)&amp;quot; with heart model loaded&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
           </property>
+          <property name="toolTipDuration">
+           <number>-1</number>
+          </property>
           <property name="text">
            <string>heart</string>
           </property>
+          <property name="iconSize">
+           <size>
+            <width>16</width>
+            <height>16</height>
+           </size>
+          </property>
           <property name="checked">
            <bool>false</bool>
+          </property>
+          <property name="indicatorIcon">
+           <iconset resource="../Icons/RoiPredIcons.qrc">
+            <normaloff>:/Icons/VisibleOn.png</normaloff>
+            <normalon>:/Icons/VisibleOff.png</normalon>:/Icons/VisibleOn.png</iconset>
+          </property>
+          <property name="indicatorIconSize">
+           <size>
+            <width>16</width>
+            <height>16</height>
+           </size>
           </property>
          </widget>
         </item>
@@ -622,6 +659,23 @@
           </property>
           <property name="text">
            <string>ca2</string>
+          </property>
+          <property name="iconSize">
+           <size>
+            <width>16</width>
+            <height>16</height>
+           </size>
+          </property>
+          <property name="indicatorIcon">
+           <iconset resource="../Icons/RoiPredIcons.qrc">
+            <normaloff>:/Icons/VisibleOn.png</normaloff>
+            <normalon>:/Icons/VisibleOff.png</normalon>:/Icons/VisibleOn.png</iconset>
+          </property>
+          <property name="indicatorIconSize">
+           <size>
+            <width>16</width>
+            <height>16</height>
+           </size>
           </property>
          </widget>
         </item>
@@ -657,6 +711,9 @@
    </item>
    <item>
     <widget class="QProgressBar" name="progressBar">
+     <property name="styleSheet">
+      <string notr="true">background-color: rgb(255, 255, 247);</string>
+     </property>
      <property name="value">
       <number>0</number>
      </property>
@@ -1015,7 +1072,9 @@
    <container>1</container>
   </customwidget>
  </customwidgets>
- <resources/>
+ <resources>
+  <include location="../Icons/RoiPredIcons.qrc"/>
+ </resources>
  <connections>
   <connection>
    <sender>RoiPred</sender>

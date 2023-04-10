@@ -1,8 +1,7 @@
-import logging
 import os
 import sys
-import time
 import importlib
+import traceback
 
 import vtk
 import qt
@@ -14,25 +13,43 @@ import RoiPredSetup.RoiPredSetup
 importlib.reload(RoiPredSetup.RoiPredSetup)
 
 curr_file_dir_path = os.path.dirname(os.path.realpath(__file__))
-dcvm_parent_dir = os.path.join(curr_file_dir_path, '../..')
+dcvm_parent_dir = os.path.abspath(os.path.join(curr_file_dir_path, '../..'))
 if dcvm_parent_dir not in sys.path:
     sys.path.append(dcvm_parent_dir)
+SlicerDeepCardiac_dir = os.path.abspath(os.path.join(curr_file_dir_path, '..'))
+if SlicerDeepCardiac_dir not in sys.path:
+    sys.path.append(SlicerDeepCardiac_dir)
 
 try:
     import numpy as np
     import torch
     import pyvista as pv
-    import matplotlib
-    colors = matplotlib.colormaps['Set1'].colors
 
     import dcvm
+    import HelperLib as helper_lib
     import RoiPredLib.RoiPredLib as roi_pred_lib
     importlib.reload(roi_pred_lib)
 
-    failed_any_import = False
+    import types
+    def reload_package(package, initial_name=None):
+        """Recursively reload all modules in the given package."""
+        if initial_name is None:
+            initial_name = package.__package__
+        importlib.reload(package)
+        for _, module in package.__dict__.items():
+            if isinstance(module, types.ModuleType) and module.__name__.startswith(initial_name):
+                reload_package(module, initial_name=initial_name)
+    reload_package(dcvm)
+    reload_package(dcvm)
+    reload_package(dcvm)
+    reload_package(helper_lib)
+    reload_package(helper_lib)
+    reload_package(helper_lib)
 except:
-    print('RoiPred: need to pip_install required packages. (Re-)enter or reload module to trigger installation.')
-    failed_any_import = True
+    traceback.print_exc()
+    print(' ')
+    print('RoiPred: probably need to pip_install required packages. (Re-)enter or reload module to trigger installation.')
+    print(' ')
 
 #
 # RoiPred
@@ -82,16 +99,14 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         ScriptedLoadableModuleWidget.setup(self)
 
+        # Create logic class. Logic implements all computations that should be possible to run
+        # in batch mode, without a graphical user interface.
+        self.logic = RoiPredLogic()
+        self.logic.initNamingConvention(self)
+
         installed_any_pkg, cancelled_any_installation = RoiPredSetup.RoiPredSetup.install_missing_pkgs_in_slicer()
         if installed_any_pkg and (not cancelled_any_installation): ScriptedLoadableModuleWidget.onReload(self)
         self.first_enter = True
-        
-        self.device = 'cuda'
-        self.roiNodeName = "RoiPred_ROI"
-        self.cropOutputNodeName = "RoiPred_crop_output"
-        self.cropOutputSequenceNodeName = "RoiPred_crop_output_seq"
-        self.cropSequenceBrowserNodeName = "RoiPred_crop_sequence_browser"
-        self.outputSequenceBrowserNodeName = "RoiPred_output_sequence_browser"
 
         # Load widget from .ui file (created by Qt Designer).
         # Additional widgets can be instantiated manually and added to self.layout.
@@ -105,10 +120,6 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # "setMRMLScene(vtkMRMLScene*)" slot.
         uiWidget.setMRMLScene(slicer.mrmlScene)
 
-        # Create logic class. Logic implements all computations that should be possible to run
-        # in batch mode, without a graphical user interface.
-        self.logic = RoiPredLogic()
-
         # Connections
 
         # enter() and exit() should just work without adding observers -- https://discourse.slicer.org/t/scripted-module-leak-addobserver/121/4
@@ -121,6 +132,12 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # (in the selected parameter node).
         self.ui.inputSequenceSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateParameterNodeFromGUI)
         self.ui.inputVolumeSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateParameterNodeFromGUI)
+        self.ui.inputSequenceSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displaySelectedNode)
+        self.ui.inputVolumeSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displaySelectedNode)
+        self.ui.inputSequenceSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateVisibilityCheckBoxes)
+        self.ui.inputVolumeSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateVisibilityCheckBoxes)
+        self.ui.inputSequenceSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateVolumeInfo)
+        self.ui.inputVolumeSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateVolumeInfo)
         self.ui.inputSequenceSelector.setVisible(False) # need this to make sure we only see inputVolumeSelector by default
         self.cropInputSelector = self.ui.inputVolumeSelector
         self.ui.inputSequenceOrVolume.toggled.connect(self.updateParameterNodeFromGUI)
@@ -149,36 +166,45 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.ca2ModelLoadButton.clicked.connect(self.onCa2ModelLoadButton)
         self.ui.crosshairPosButton.clicked.connect(self.onCrosshairPosButton)
         self.ui.modelPredCenterButton.clicked.connect(self.onModelPredCenterButton)
-        self.ui.roiVisibility.clicked.connect(self.onRoiVisibilityButton)
         self.ui.downloadDataButton.clicked.connect(self.onDownloadDataButton)
         self.ui.heartExpDir.directoryChanged.connect(self.updateHeartExpDir)
         self.ui.ca2ExpDir.directoryChanged.connect(self.updateCa2ExpDir)
         self.ui.useGPU.clicked.connect(self.onUseGpuButton)
         self.ui.cropAndRunButton.clicked.connect(self.onCropAndRunButton)
-        self.ui.heartVisibility.clicked.connect(self.onHeartVisibilityButton)
-        self.ui.ca2Visibility.clicked.connect(self.onCa2VisibilityButton)
         self.ui.saveOutputsInpButton.clicked.connect(self.onSaveOutputsInpButton)
         self.ui.removeOutputNodesButton.clicked.connect(self.onRemoveOutputNodesButton)
 
-        self.crosshair = slicer.util.getNode('Crosshair')
+        self.ui.roiVisibility.clicked.connect(self.onRoiVisibility)
+        self.ui.heartVisibility.clicked.connect(self.onHeartVisibility)
+        self.ui.ca2Visibility.clicked.connect(self.onCa2Visibility)
 
-        moduleDir = os.path.dirname(slicer.util.modulePath(self.__module__))
-        self.ui.roiVisibility.setIcon(qt.QIcon(os.path.join(moduleDir, 'Resources/Icons/VisibleOn.png')))
-        self.ui.heartVisibility.setIcon(qt.QIcon(os.path.join(moduleDir, 'Resources/Icons/VisibleOn.png')))
-        self.ui.ca2Visibility.setIcon(qt.QIcon(os.path.join(moduleDir, 'Resources/Icons/VisibleOn.png')))
+        self.updateRoiVisibilityCheckBox = helper_lib.UpdateCheckboxWithDataNodeVisibility(self.ui.roiVisibility)
+        self.updateHeartVisibilityCheckBox = helper_lib.UpdateCheckboxWithDataNodeVisibility(self.ui.heartVisibility)
+        self.updateCa2VisibilityCheckbox = helper_lib.UpdateCheckboxWithSegmentVisibility(self.ui.ca2Visibility, self.segmentationNodeName_suffix, [self.ca2_segmentName_suffix])
+
+        self.crosshair = slicer.util.getNode('Crosshair')
 
         self.ui.resetCollapsibleButton.checked = False
         self.ui.saveCollapsibleButton.checked = False
         self.ui.volumeInfoCollapsibleButton.checked = False
 
         try:
-            self.progress_bar_and_run_time = roi_pred_lib.ProgressBarAndRunTime(self.ui.progressBar)
-        except:
+            self.progress_bar_and_run_time = helper_lib.ProgressBarAndRunTime(self.ui.progressBar)
+        except Exception:
             uiWidget.setEnabled(False)
+            traceback.print_exc()
         
         # Make sure parameter node is initialized (needed for module reload)
         # self.parameterNodeObserved = False
         self.initializeParameterNode()
+        roiNode = slicer.util.getFirstNodeByClassByName("vtkMRMLMarkupsROINode", self.roiNodeName)
+        if roiNode:
+            self._parameterNode.SetNodeReferenceID("roiNode", roiNode.GetID())
+        else:
+            self._parameterNode.SetNodeReferenceID("roiNode", "None")
+        self._parameterNode.SetParameter("heartModelLoaded", "false")
+        self._parameterNode.SetParameter("templateLoaded", "false")
+        self._parameterNode.SetParameter("ca2ModelLoaded", "false")
 
     def cleanup(self):
         """
@@ -191,10 +217,14 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         Called each time the user opens this module.
         If we update this, need to restart 3D slicer to see the effects
         """
-        if not self.first_enter:
+        if not self.first_enter: # continue asking to install packages if need be (re-enter module to trigger prompt)
             installed_any_pkg, cancelled_any_installation = RoiPredSetup.RoiPredSetup.install_missing_pkgs_in_slicer()
             if installed_any_pkg and (not cancelled_any_installation): ScriptedLoadableModuleWidget.onReload(self)
         self.first_enter = False
+
+        if hasattr(self, 'cropInputSelector'):
+            self.displaySelectedNode(displayOutputs=False)
+            self.updateVisibilityCheckBoxes()
 
         # Make sure parameter node exists and observed
         self.initializeParameterNode()
@@ -339,13 +369,6 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.heartVisibility.enabled = True if self._parameterNode.GetParameter("heartRunCompleted") == "true" else False
         self.ui.ca2Visibility.enabled = True if self._parameterNode.GetParameter("ca2RunCompleted") == "true" else False
 
-        # if self.ui.followExpParams.checked: # this is not good enough.. this updateGUIfromParameterNode isn't called all the time
-        #     self.ui.templateFilenamePrefix.enabled = True
-        # else:
-        #     self.ui.templateFilenamePrefix.enabled = False
-
-        self.updateVolumeInfo()
-
         # All the GUI updates are done
         self._updatingGUIFromParameterNode = False
 
@@ -375,15 +398,97 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._parameterNode.SetParameter("roiA", self.ui.roiA.text)
         self._parameterNode.SetParameter("roiS", self.ui.roiS.text)
         self._parameterNode.SetParameter("roiVisibility", "true" if self.ui.roiVisibility.checked else "false")
+        self._parameterNode.SetParameter("heartVisibility", "true" if self.ui.heartVisibility.checked else "false")
+        self._parameterNode.SetParameter("ca2Visibility", "true" if self.ui.ca2Visibility.checked else "false")
         self._parameterNode.SetParameter("useGPU", "true" if self.ui.useGPU.checked else "false")
-
         self._parameterNode.SetParameter("heartExpDir", self.ui.heartExpDir.directory)
         self._parameterNode.SetParameter("ca2ExpDir", self.ui.ca2ExpDir.directory)
         self._parameterNode.SetParameter("templateFilenamePrefix", self.ui.templateFilenamePrefix.text)
 
-        self.updateVolumeInfo()
-
         self._parameterNode.EndModify(wasModified)
+
+    def defineOutputNamesFromInputSelector(self):
+        if self.cropInputSelector.currentNode():
+            # display volume node
+            if isinstance(self.cropInputSelector.currentNode(), slicer.vtkMRMLSequenceNode):
+                inputVolumeNode = self.cropInputSelector.currentNode().GetNthDataNode(0)
+            elif isinstance(self.cropInputSelector.currentNode(), slicer.vtkMRMLScalarVolumeNode):
+                inputVolumeNode = self.cropInputSelector.currentNode()
+
+            inputNodeName = self.cropInputSelector.currentNode().GetName()
+            if hasattr(self, "heart_mesh_keys"): # to prevent issues for ca2_prediction_only cases
+                self.modelNames_dict = {key: '{}_{}'.format(inputNodeName, key) for key in self.heart_mesh_keys}
+            self.heartModelFolderName = "{}{}".format(inputNodeName, self.heartModelFolderName_suffix)
+            self.segmentationNodeName = "{}{}".format(inputNodeName, self.segmentationNodeName_suffix)
+            self.segmentName = "{}{}".format(inputNodeName, self.ca2_segmentName_suffix)
+            self.inputNodeName = inputNodeName
+
+    def updateVisibilityCheckBoxes(self):
+        self.defineOutputNamesFromInputSelector()
+        
+        roiNode = slicer.util.getFirstNodeByClassByName("vtkMRMLMarkupsROINode", self.roiNodeName)
+        
+        if hasattr(self, "heartModelFolderName"):
+            heartFolderNode = slicer.util.getFirstNodeByClassByName("vtkMRMLFolderDisplayNode", self.heartModelFolderName)
+        else:
+            heartFolderNode = None
+
+        if hasattr(self, "segmentationNodeName"):
+            segmentationNode = slicer.util.getFirstNodeByClassByName("vtkMRMLSegmentationNode", self.segmentationNodeName)
+        else:
+            segmentationNode = None
+
+        if roiNode:
+            self.updateRoiVisibilityCheckBox(roiNode)
+        else:
+            self.updateRoiVisibilityCheckBox.checkbox.checked = False
+
+        if heartFolderNode:
+            self.updateHeartVisibilityCheckBox(heartFolderNode)
+        else:
+            self.updateHeartVisibilityCheckBox.checkbox.checked = False
+            
+        if segmentationNode:
+            self.updateCa2VisibilityCheckbox(segmentationNode)
+        else:
+            self.updateCa2VisibilityCheckbox.checkbox.checked = False
+
+    def displaySelectedNode(self, caller=None, displayOutputs=True):
+        """
+        if displayOutputs is True, display ALL available outputs with the names associated with selected input node
+        """
+
+        cropInputNode = self.cropInputSelector.currentNode()
+        shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
+
+        if cropInputNode is not None:
+            # display volume node
+            if isinstance(cropInputNode, slicer.vtkMRMLSequenceNode):
+                sequenceBrowserNode = helper_lib.update_outputSequenceBrowserNode(self.outputSequenceBrowserNodeName, imgSequenceNode=cropInputNode)
+            elif isinstance(cropInputNode, slicer.vtkMRMLScalarVolumeNode):
+                inputVolumeNode = self.cropInputSelector.currentNode()
+                slicer.util.setSliceViewerLayers(background=inputVolumeNode)
+
+            if displayOutputs:
+                # display only the name-associated models and segs
+                self.defineOutputNamesFromInputSelector()
+
+                folderNames, _, _ = helper_lib.get_all_folders_containing_suffix(self.heartModelFolderName_suffix)
+                for folderName in folderNames:
+                    helper_lib.set_folder_visibility(folderName, folderName == self.heartModelFolderName, updateContentsVisibility=True)
+
+                segmentNames, _, _ = helper_lib.get_all_segments_containing_suffix(self.ca2_segmentName_suffix)
+                for segmentName in segmentNames:
+                    helper_lib.set_segment_visibility(segmentName, segmentName == self.segmentName)
+
+        else: # empty model/seg display when None is selected on inputVolumeSelector
+            folderNames, _, _ = helper_lib.get_all_folders_containing_suffix(self.heartModelFolderName_suffix)
+            for folderName in folderNames:
+                helper_lib.set_folder_visibility(folderName, False)
+
+            segmentNames, _, _ = helper_lib.get_all_segments_containing_suffix(self.ca2_segmentName_suffix)
+            for segmentName in segmentNames:
+                helper_lib.set_segment_visibility(segmentName, False)
 
     def updateVolumeInfo(self):
         if self.cropInputSelector.currentNode():
@@ -402,7 +507,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.originalVolumeDimensionsDisplay0.text = str(dimensions[0])
             self.ui.originalVolumeDimensionsDisplay1.text = str(dimensions[1])
             self.ui.originalVolumeDimensionsDisplay2.text = str(dimensions[2])
-        else:
+        else: # default
             self.ui.originalVolumeSpacingDisplay0.text = "0"
             self.ui.originalVolumeSpacingDisplay1.text = "0"
             self.ui.originalVolumeSpacingDisplay2.text = "0"
@@ -410,32 +515,36 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.ui.originalVolumeDimensionsDisplay1.text = "0"
             self.ui.originalVolumeDimensionsDisplay2.text = "0"
         
-        if self._parameterNode.GetNodeReference("cropOutput"): # None by default, no way to choose. It's a temporary node specific to RoiPred
-            if isinstance(self._parameterNode.GetNodeReference("cropOutput"), slicer.vtkMRMLSequenceNode):
-                outputVolumeNode = self._parameterNode.GetNodeReference("cropOutput").GetNthDataNode(0)
-            elif isinstance(self._parameterNode.GetNodeReference("cropOutput"), slicer.vtkMRMLScalarVolumeNode):
-                outputVolumeNode = self._parameterNode.GetNodeReference("cropOutput")
-            spacing = outputVolumeNode.GetSpacing()
-            if not outputVolumeNode.GetImageData() is None:
-                dimensions = outputVolumeNode.GetImageData().GetDimensions()
-            else:
-                dimensions = [0,0,0]
-            self.ui.croppedVolumeSpacingDisplay0.text = str(spacing[0])
-            self.ui.croppedVolumeSpacingDisplay1.text = str(spacing[1])
-            self.ui.croppedVolumeSpacingDisplay2.text = str(spacing[2])
-            self.ui.croppedVolumeDimensionsDisplay0.text = str(dimensions[0])
-            self.ui.croppedVolumeDimensionsDisplay1.text = str(dimensions[1])
-            self.ui.croppedVolumeDimensionsDisplay2.text = str(dimensions[2])
-        else:
-            self.ui.croppedVolumeSpacingDisplay0.text = "0"
-            self.ui.croppedVolumeSpacingDisplay1.text = "0"
-            self.ui.croppedVolumeSpacingDisplay2.text = "0"
-            self.ui.croppedVolumeDimensionsDisplay0.text = "0"
-            self.ui.croppedVolumeDimensionsDisplay1.text = "0"
-            self.ui.croppedVolumeDimensionsDisplay2.text = "0"
+        # default - structured this way b/c we want default if _parameterNode is None or self._parameterNode.GetNodeReference("cropOutput") is None
+        self.ui.croppedVolumeSpacingDisplay0.text = "0"
+        self.ui.croppedVolumeSpacingDisplay1.text = "0"
+        self.ui.croppedVolumeSpacingDisplay2.text = "0"
+        self.ui.croppedVolumeDimensionsDisplay0.text = "0"
+        self.ui.croppedVolumeDimensionsDisplay1.text = "0"
+        self.ui.croppedVolumeDimensionsDisplay2.text = "0"
+        if self._parameterNode: # prevent error when _parameterNode is deleted but we're still calling updateVolumeInfo
+            if self._parameterNode.GetNodeReference("cropOutput"): # None by default, no way to choose. It's a temporary node specific to RoiPred
+                if isinstance(self._parameterNode.GetNodeReference("cropOutput"), slicer.vtkMRMLSequenceNode):
+                    outputVolumeNode = self._parameterNode.GetNodeReference("cropOutput").GetNthDataNode(0)
+                elif isinstance(self._parameterNode.GetNodeReference("cropOutput"), slicer.vtkMRMLScalarVolumeNode):
+                    outputVolumeNode = self._parameterNode.GetNodeReference("cropOutput")
+                spacing = outputVolumeNode.GetSpacing()
+                if not outputVolumeNode.GetImageData() is None:
+                    dimensions = outputVolumeNode.GetImageData().GetDimensions()
+                else:
+                    dimensions = [0,0,0]
+                self.ui.croppedVolumeSpacingDisplay0.text = str(spacing[0])
+                self.ui.croppedVolumeSpacingDisplay1.text = str(spacing[1])
+                self.ui.croppedVolumeSpacingDisplay2.text = str(spacing[2])
+                self.ui.croppedVolumeDimensionsDisplay0.text = str(dimensions[0])
+                self.ui.croppedVolumeDimensionsDisplay1.text = str(dimensions[1])
+                self.ui.croppedVolumeDimensionsDisplay2.text = str(dimensions[2])
 
     def onInputSequenceOrVolume(self, caller=None, event=None):
         self.initializeParameterNode()
+        self.displaySelectedNode(displayOutputs=True)
+        self.updateVisibilityCheckBoxes()
+        self.updateVolumeInfo()
 
     def onInitializeAndUpdateRoiNode(self, caller=None, event=None):
         roiNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsROINode")
@@ -464,7 +573,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # delete all roiNode's with the default name
         for roiNode in slicer.util.getNodesByClass('vtkMRMLMarkupsROINode'):
             if roiNode.GetName() == self.roiNodeName:
-                self.removeObserver(roiNode, roiNode.PointModifiedEvent, self.updateRoiCenterGui)
+                roiNode.RemoveAllObservers()
                 slicer.mrmlScene.RemoveNode(roiNode)
 
     def updateRoiCenterGui(self, observer, eventid):
@@ -483,9 +592,8 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onModelPredCenterButton(self):
         inputNodeName = self.cropInputSelector.currentNode().GetName()
-        modelNames_dict = {key: '{}_{}'.format(inputNodeName, key) for key in self.heart_mesh_keys}
 
-        mesh_pv_list = [pv.UnstructuredGrid(modelNode.GetMesh()) for modelNode in slicer.util.getNodesByClass('vtkMRMLModelNode') if modelNode.GetName() in modelNames_dict.values()] # pv.UnstructuredGrid to make proxyNode compatible for pv.merge
+        mesh_pv_list = [pv.UnstructuredGrid(modelNode.GetMesh()) for modelNode in slicer.util.getNodesByClass('vtkMRMLModelNode') if modelNode.GetName() in self.modelNames_dict.values()] # pv.UnstructuredGrid to make proxyNode compatible for pv.merge
         mesh_pv_all = pv.merge(mesh_pv_list)
         modelPredCenter = np.array(mesh_pv_all.bounds).reshape(-1,2).mean(axis=1)
         self.ui.roiR.text = round(modelPredCenter[0], 2)
@@ -494,21 +602,26 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self._parameterNode.GetNodeReference("roiNode"):
             self._parameterNode.GetNodeReference("roiNode").SetCenter([float(self._parameterNode.GetParameter('roiR')), float(self._parameterNode.GetParameter('roiA')), float(self._parameterNode.GetParameter('roiS'))])
 
-    def onRoiVisibilityButton(self):
+    def onRoiVisibility(self):
         if self.ui.roiVisibility.checked:
             self._parameterNode.GetNodeReference("roiNode").GetDisplayNode().SetVisibility(True)
         else:
             self._parameterNode.GetNodeReference("roiNode").GetDisplayNode().SetVisibility(False)
-        # wasModified = self._parameterNode.StartModify()
-        # if self._parameterNode.GetParameter("roiVisibility") == 'true':
-        #     self._parameterNode.GetNodeReference("roiNode").GetDisplayNode().SetVisibility(True)
-        # else:
-        #     self._parameterNode.GetNodeReference("roiNode").GetDisplayNode().SetVisibility(False)
-        # self._parameterNode.EndModify(wasModified)
 
     def onDownloadDataButton(self):
         self.progress_bar_and_run_time.start(maximum=1)
-        dcvm.utils.download_data_and_relocate()
+        try:
+            dcvm.utils.download_data()
+        except Exception:
+            traceback.print_exc()
+            print(' ')
+            print("Auto-download failed.")
+            print("1. Use a browser to open the link: {}".format(dcvm.utils.data_url))
+            print("2. Download and unzip the contents into {}".format(dcvm.utils.temp_data_dir))
+            print("3. Click the 'Download & Relocate ...' button again")
+        
+        dcvm.utils.relocate_data()
+
         self.progress_bar_and_run_time.end()
 
     def updateHeartExpDir(self):
@@ -517,46 +630,19 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def updateCa2ExpDir(self):
         self._parameterNode.SetParameter("ca2ExpDir", self.ui.ca2ExpDir.directory)
 
-    def onHeartVisibilityButton(self):
-        '''
-        1. turn on all relevant model's visibility
-        2. control model visibility with folder visibility
-        '''
-        inputNodeName = self.cropInputSelector.currentNode().GetName()
-        modelNames = ['{}_{}'.format(inputNodeName, key) for key in self.heart_mesh_keys]
-        modelNodes = [[node for node in slicer.util.getNodesByClass('vtkMRMLModelNode') if node.GetName() == modelName][0] for modelName in modelNames]
-        for modelNodes in modelNodes:
-            modelNodes.GetDisplayNode().SetVisibility(True)
-
-        # check if folder exists
-        shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
-        folder_name = "{}_heart".format(inputNodeName)
-
-        folder_exists = False
-        childIds = vtk.vtkIdList() # dummy to save Ids
-        shNode.GetItemChildren(shNode.GetSceneItemID(), childIds)
-        for itemIdIndex in range(childIds.GetNumberOfIds()): # for all children of the main Subject Hierarchy
-            shItemId = childIds.GetId(itemIdIndex)
-            if shNode.GetItemName(shItemId) == folder_name:
-                grandChildIds = vtk.vtkIdList()
-                shNode.GetItemChildren(shItemId, grandChildIds)
-                if grandChildIds.GetNumberOfIds() > 0:
-                    modelFolderItemId = shItemId
-                    folder_exists = True
-        
-        if folder_exists:
-            # folder display manipulation
-            pluginHandler = slicer.qSlicerSubjectHierarchyPluginHandler().instance()
-            folderPlugin = pluginHandler.pluginByName("Folder")
-            folderPlugin.setDisplayVisibility(modelFolderItemId, self.ui.heartVisibility.checked)
-        else:
+    def onHeartVisibility(self):
+        self.defineOutputNamesFromInputSelector()
+        folder_exists = helper_lib.set_folder_visibility(self.heartModelFolderName, self.ui.heartVisibility.checked, updateContentsVisibility=True)
+        if not folder_exists:
             self.ui.heartVisibility.checked = False
+        self.updateVisibilityCheckBoxes() # in case this function affects other visibilities
 
-    def onCa2VisibilityButton(self):
-        inputNodeName = self.cropInputSelector.currentNode().GetName()
-        segmentationName = '{}_Segmentation'.format(inputNodeName)
-        segmentationNode = [node for node in slicer.util.getNodesByClass('vtkMRMLSegmentationNode') if node.GetName() == segmentationName][0]
-        segmentationNode.GetDisplayNode().SetVisibility(self.ui.ca2Visibility.checked)
+    def onCa2Visibility(self):
+        self.defineOutputNamesFromInputSelector()
+        segment_exists = helper_lib.set_segment_visibility(self.segmentName, self.ui.ca2Visibility.checked)
+        if not segment_exists:
+            self.ui.ca2Visibility.checked = False
+        self.updateVisibilityCheckBoxes() # in case this function affects other visibilities
 
     def onHeartModelLoadButton(self):
         self.progress_bar_and_run_time.start(maximum=1)
@@ -606,21 +692,16 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onCropAndRunButton(self):
         self.progress_bar_and_run_time.start(maximum=1)
 
-        # define names for pytorch output nodes (names change based on input node, that's why they're defined here)
-        inputNodeName = self.cropInputSelector.currentNode().GetName()
-        if self._parameterNode.GetParameter("templateLoaded") == "true": # to prevent issues for ca2_prediction_only cases
-            modelNames_dict = {key: '{}_{}'.format(inputNodeName, key) for key in self.heart_mesh_keys}
-        heartModelFolderName = "{}_heart".format(inputNodeName)
-        segmentationNodeName = "{}_Segmentation".format(inputNodeName)
-        segmentName = "{}_ca2".format(inputNodeName)
+        self.displaySelectedNode(displayOutputs=True)
+        self.updateVisibilityCheckBoxes()
 
         # define relevant inputs
         cropInputNode = self._parameterNode.GetNodeReference("cropInput")
         roiNode = self._parameterNode.GetNodeReference("roiNode")
         spacing = [float(self._parameterNode.GetParameter("spacing"))]*3
-        if self._parameterNode.GetParameter("heartModelLoaded") == "true":
+        if hasattr(self, "pytorch_model_heart"):
             device = next(self.pytorch_model_heart.parameters()).device
-        elif self._parameterNode.GetParameter("ca2ModelLoaded") == "true":
+        elif hasattr(self, "pytorch_model_ca2"):
             device = next(self.pytorch_model_ca2.parameters()).device
 
         # Cropping
@@ -630,16 +711,10 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         else: # sequence of volume images
             cropped_img_torch_list = roi_pred_lib.run_crop_volume_sequence(cropInputNode, roiNode, spacing=spacing, device=device) # list((n_batch, n_ch, x, y, z))
             cropOutputNode = roi_pred_lib.update_cropOutputSequenceNode(cropped_img_torch_list, self.cropOutputSequenceNodeName, roiNode, spacing=spacing)
-            roi_pred_lib.update_cropSequenceBrowserNode(self.cropSequenceBrowserNodeName, cropOutputNode)
+            # roi_pred_lib.update_cropSequenceBrowserNode(self.cropSequenceBrowserNodeName, cropOutputNode)
         self._parameterNode.SetNodeReferenceID("cropOutput", cropOutputNode.GetID())
 
         # Start Pytorch Run
-
-        # turn off visibility for all existing model/segmentation nodes. Only turn on visibility for new model/segmentation nodes
-        for modelNode in slicer.util.getNodesByClass('vtkMRMLModelNode'):
-            modelNode.GetDisplayNode().SetVisibility(False)
-        for segmentationNode in slicer.util.getNodesByClass('vtkMRMLSegmentationNode'):
-            segmentationNode.GetDisplayNode().SetVisibility(False)
 
         # volume
         if isinstance(cropInputNode, slicer.vtkMRMLScalarVolumeNode):
@@ -655,9 +730,9 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     origin_translate = - np.array(cropInputNode.GetOrigin()) + np.array(cropOutputNode.GetOrigin()),
                     downsample_ratio = spacing,
                 )
-                modelNodes_dict = roi_pred_lib.update_model_nodes_from_pv_dict(mesh_pv_dict, modelNames_dict)
-                roi_pred_lib.update_model_nodes_display(list(modelNodes_dict.values()))
-                roi_pred_lib.put_models_in_folder(heartModelFolderName, modelNames_dict)
+                modelNodes_dict = helper_lib.update_model_nodes_from_pv_dict(mesh_pv_dict, self.modelNames_dict)
+                helper_lib.update_model_nodes_display(list(modelNodes_dict.values()))
+                helper_lib.put_models_in_folder(self.heartModelFolderName, self.modelNames_dict)
                 self._parameterNode.SetParameter("heartVisibility", "true")
                 self._parameterNode.SetParameter("heartRunCompleted", "true")
 
@@ -670,9 +745,9 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     origin_translate = - np.array(cropInputNode.GetOrigin()) + np.array(cropOutputNode.GetOrigin()),
                     downsample_ratio = spacing,
                 )
-                # roi_pred_lib.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'}) # for debugging. pv-->model conversion implemented before array-->segment
-                segmentationNode = roi_pred_lib.update_seg_node_from_np(ca2_seg, segmentationNodeName, segmentName, cropInputNode)
-                roi_pred_lib.update_seg_node_display(segmentationNode, [segmentName])
+                # helper_lib.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'}) # for debugging. pv-->model conversion implemented before array-->segment
+                segmentationNode = helper_lib.update_seg_node_from_np(ca2_seg, self.segmentationNodeName, self.segmentName, cropInputNode)
+                helper_lib.update_seg_node_display(segmentationNode, [self.segmentName])
                 self._parameterNode.SetParameter("ca2Visibility", "true")
                 self._parameterNode.SetParameter("ca2RunCompleted", "true")
 
@@ -694,9 +769,9 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                         downsample_ratio = spacing,
                     )
                     mesh_pv_dict_list.append(mesh_pv_dict)
-                modelSequenceNodes_dict = roi_pred_lib.update_model_sequence_nodes_from_pv_dict_list(mesh_pv_dict_list, modelNames_dict)
-                roi_pred_lib.update_outputSequenceBrowserNode(self.outputSequenceBrowserNodeName, cropInputNode=cropInputNode, modelSequenceNodes_dict=modelSequenceNodes_dict)
-                roi_pred_lib.put_models_in_folder(heartModelFolderName, modelNames_dict)
+                modelSequenceNodes_dict = helper_lib.update_model_sequence_nodes_from_pv_dict_list(mesh_pv_dict_list, self.modelNames_dict)
+                browserNode = helper_lib.update_outputSequenceBrowserNode(self.outputSequenceBrowserNodeName, imgSequenceNode=cropInputNode, modelSequenceNodes_dict=modelSequenceNodes_dict)
+                helper_lib.put_models_in_folder(self.heartModelFolderName, self.modelNames_dict)
                 self._parameterNode.SetParameter("heartVisibility", "true")
                 self._parameterNode.SetParameter("heartRunCompleted", "true")
 
@@ -712,19 +787,23 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                         downsample_ratio = spacing,
                     )
                     ca2_seg_list.append(ca2_seg)
-                # # roi_pred_lib.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'}) # for debugging. pv-->model conversion implemented before array-->segment
+                # # helper_lib.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'}) # for debugging. pv-->model conversion implemented before array-->segment
                 # print([ca2_seg.sum() for ca2_seg in ca2_seg_list])
-                segSequenceNode = roi_pred_lib.update_seg_sequence_node_from_seg_list(ca2_seg_list, segmentationNodeName, segmentName, cropInputNode)
-                roi_pred_lib.update_outputSequenceBrowserNode(self.outputSequenceBrowserNodeName, cropInputNode=cropInputNode, segSequenceNode=segSequenceNode)
+                segSequenceNode = helper_lib.update_seg_sequence_node_from_seg_list(ca2_seg_list, self.segmentationNodeName, self.segmentName, cropInputNode)
+                browserNode = helper_lib.update_outputSequenceBrowserNode(self.outputSequenceBrowserNodeName, imgSequenceNode=cropInputNode, segSequenceNode=segSequenceNode)
                 self._parameterNode.SetParameter("ca2Visibility", "true")
                 self._parameterNode.SetParameter("ca2RunCompleted", "true")
-
+        
+        helper_lib.put_outputs_under_same_subject(self.inputNodeName, self.heartModelFolderName_suffix, self.segmentationNodeName_suffix)
+        self.displaySelectedNode(displayOutputs=True)
+        self.updateVisibilityCheckBoxes()
+        
         self.progress_bar_and_run_time.end()
 
     def onSaveOutputsInpButton(self):
         inputNode = self.cropInputSelector.currentNode()
         inputNodeName = inputNode.GetName()
-        modelNames_dict = {key: '{}_{}'.format(inputNodeName, key) for key in self.heart_mesh_keys}
+        # self.defineOutputNamesFromInputSelector() this is already called when changing the drop-down menu choice
 
         exp_dir = self._parameterNode.GetParameter("heartExpDir")
         save_dir = os.path.join(exp_dir, '3d_slicer_outputs')
@@ -732,7 +811,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         
         if isinstance(inputNode, slicer.vtkMRMLSequenceNode):
             # remove sequenceBrowserNode --> sequenceNodes --> proxyNodes
-            modelSequenceNodes_dict = {key: node for key, modelName in modelNames_dict.items() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLSequenceNode') if node.GetName() == modelName]}
+            modelSequenceNodes_dict = {key: node for key, modelName in self.modelNames_dict.items() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLSequenceNode') if node.GetName() == modelName]}
             if len(modelSequenceNodes_dict) > 0: # to avoid error when model doesn't exist
                 modelSequence0 = list(modelSequenceNodes_dict.values())[0]
                 self.progress_bar_and_run_time.start(maximum=modelSequence0.GetNumberOfDataNodes())
@@ -747,7 +826,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     self.progress_bar_and_run_time.step(itemIndex+1)
                 
         elif isinstance(inputNode, slicer.vtkMRMLScalarVolumeNode):
-            modelNodes_dict = {key: node for key, modelName in modelNames_dict.items() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLModelNode') if node.GetName() == modelName]}
+            modelNodes_dict = {key: node for key, modelName in self.modelNames_dict.items() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLModelNode') if node.GetName() == modelName]}
             if len(modelNodes_dict) > 0: # to avoid error when model doesn't exist
                 self.progress_bar_and_run_time.start(maximum=1)
                 mesh_pv_dict = {key: pv.UnstructuredGrid(modelNode.GetMesh()) for key, modelNode in modelNodes_dict.items()}
@@ -762,13 +841,12 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onRemoveOutputNodesButton(self):
         inputNode = self.cropInputSelector.currentNode()
         inputNodeName = inputNode.GetName()
-        modelNames_dict = {key: '{}_{}'.format(inputNodeName, key) for key in self.heart_mesh_keys}
         
         if isinstance(inputNode, slicer.vtkMRMLSequenceNode):
             # remove sequenceBrowserNode --> sequenceNodes --> proxyNodes
             outputSequenceBrowserNodes = [node for node in slicer.util.getNodesByClass('vtkMRMLSequenceBrowserNode') if node.GetName() == self.outputSequenceBrowserNodeName]
-            modelSequenceNodes = [node for modelName in modelNames_dict.values() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLSequenceNode') if node.GetName() == modelName]]
-            modelSequenceProxyNodes = [node for modelName in modelNames_dict.values() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLModelNode') if node.GetName() == modelName]]
+            modelSequenceNodes = [node for modelName in self.modelNames_dict.values() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLSequenceNode') if node.GetName() == modelName]]
+            modelSequenceProxyNodes = [node for modelName in self.modelNames_dict.values() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLModelNode') if node.GetName() == modelName]]
             inputProxyNodes = [node for node in slicer.util.getNodesByClass('vtkMRMLScalarVolumeNode') if node.GetName() == inputNodeName]
             if len(outputSequenceBrowserNodes) > 0: # to avoid error when model doesn't exist
                 for outputSequenceBrowserNode in outputSequenceBrowserNodes:
@@ -780,15 +858,22 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 for inputProxyNode in inputProxyNodes:
                     slicer.mrmlScene.RemoveNode(inputProxyNode) # we can remove all input proxy nodes, even the original sequence ones.. it will generate new ones immediately if sequence browser is still alive
         elif isinstance(inputNode, slicer.vtkMRMLScalarVolumeNode):
-            modelNodes = [node for modelName in modelNames_dict.values() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLModelNode') if node.GetName() == modelName]]
+            modelNodes = [node for modelName in self.modelNames_dict.values() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLModelNode') if node.GetName() == modelName]]
             if len(modelNodes) > 0: # to avoid error when model doesn't exist
                 for modelNode in modelNodes:
                     slicer.mrmlScene.RemoveNode(modelNode)
+
+        _, folderIds, _ = helper_lib.get_all_folders_containing_suffix(self.heartModelFolderName)
+        for folderId in folderIds:
+            shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
+            shNode.RemoveItem(folderId)
         
         segmentationNodes = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
         if len(segmentationNodes) > 0:
-            segmentationNode = [node for node in segmentationNodes if '{}_Segmentation'.format(inputNodeName) in node.GetName()][0]
+            segmentationNode = [node for node in segmentationNodes if '{}{}'.format(inputNodeName, self.segmentationNodeName_suffix) in node.GetName()][0]
             slicer.mrmlScene.RemoveNode(segmentationNode)
+
+        self.updateVisibilityCheckBoxes()
 
 #
 # RoiPredLogic
@@ -809,6 +894,19 @@ class RoiPredLogic(ScriptedLoadableModuleLogic):
         Called when the logic class is instantiated. Can be used for initializing member variables.
         """
         ScriptedLoadableModuleLogic.__init__(self)
+
+    def initNamingConvention(self, widgetObject):
+        # naming convention: setting it all up in one place
+        widgetObject.roiNodeName = "RoiPred_ROI"
+        widgetObject.cropOutputNodeName = "RoiPred_crop_output"
+        widgetObject.cropOutputSequenceNodeName = "RoiPred_crop_output_seq"
+        widgetObject.cropSequenceBrowserNodeName = "RoiPred_crop_sequence_browser"
+        widgetObject.outputSequenceBrowserNodeName = "RoiPred_output_sequence_browser"
+        
+        # modelNames_suffix defined by self.heart_mesh_keys after template load # e.g. {inputVolumeName}_lv, etc.
+        widgetObject.heartModelFolderName_suffix = "_heart" # e.g. {inputVolumeName}_heart
+        widgetObject.segmentationNodeName_suffix = "_Segmentation" # e.g. {inputVolumeName}_Segmentation
+        widgetObject.ca2_segmentName_suffix = "_ca2" # e.g. {inputVolumeName}_ca2
 
     def setDefaultParameters(self, parameterNode):
         """

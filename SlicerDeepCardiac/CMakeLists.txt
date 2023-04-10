@@ -21,6 +21,7 @@ include(${Slicer_USE_FILE})
 # Extension modules
 add_subdirectory(RoiPred)
 add_subdirectory(Ca2Meshing)
+add_subdirectory(HelperLib)
 ## NEXT_MODULE
 
 #-----------------------------------------------------------------------------
