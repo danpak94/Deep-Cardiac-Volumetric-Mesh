@@ -8,31 +8,85 @@ import vtk
 def img_from_volumeNode(volumeNode):
     img = slicer.util.arrayFromVolume(volumeNode) # RAS
     img = img.transpose(2,1,0) # b/c vtk/Slicer flips when getting array from volume
-    mat = vtk.vtkMatrix4x4(); volumeNode.GetIJKToRASDirectionMatrix(mat)
-    if mat.GetElement(0,0) == -1: # flip based on IJK to RAS DirectionMatrix
-        img = np.flip(img, axis=0)
-    if mat.GetElement(1,1) == -1:
-        img = np.flip(img, axis=1)
+    # mat = vtk.vtkMatrix4x4(); volumeNode.GetIJKToRASDirectionMatrix(mat)
+    # if mat.GetElement(0,0) == -1: # flip based on IJK to RAS DirectionMatrix
+    #     img = np.flip(img, axis=0)
+    # if mat.GetElement(1,1) == -1:
+    #     img = np.flip(img, axis=1)
     return img
 
-def run_crop_volume_single(cropInputNode, roiNode, spacing=[1,1,1], device='cuda'):
+def arrayFromVTKMatrix(vmatrix):
+    """
+    https://discourse.slicer.org/t/vtk-transform-matrix-as-python-list-tuple-array/11797
+    Return vtkMatrix4x4 or vtkMatrix3x3 elements as numpy array.
+    The returned array is just a copy and so any modification in the array will not affect the input matrix.
+    To set VTK matrix from a numpy array, use :py:meth:`vtkMatrixFromArray` or
+    :py:meth:`updateVTKMatrixFromArray`.
+    """
+    from vtk import vtkMatrix4x4
+    from vtk import vtkMatrix3x3
+    import numpy as np
+    if isinstance(vmatrix, vtkMatrix4x4):
+        matrixSize = 4
+    elif isinstance(vmatrix, vtkMatrix3x3):
+        matrixSize = 3
+    else:
+        raise RuntimeError("Input must be vtk.vtkMatrix3x3 or vtk.vtkMatrix4x4")
+    narray = np.eye(matrixSize)
+    vmatrix.DeepCopy(narray.ravel(), vmatrix)
+    return narray
+
+def get_IJKtoRAS(dataNode):
+    t1 = vtk.vtkMatrix4x4()
+    if isinstance(dataNode, slicer.vtkMRMLScalarVolumeNode):
+        volumeNode = dataNode
+    elif isinstance(dataNode, slicer.vtkMRMLSequenceNode):
+        volumeNode = dataNode.GetNthDataNode(0)
+    volumeNode.GetIJKToRASMatrix(t1)
+    return arrayFromVTKMatrix(t1)
+
+def get_RAStoIJK(dataNode):
+    t1 = vtk.vtkMatrix4x4()
+    if isinstance(dataNode, slicer.vtkMRMLScalarVolumeNode):
+        volumeNode = dataNode
+    elif isinstance(dataNode, slicer.vtkMRMLSequenceNode):
+        volumeNode = dataNode.GetNthDataNode(0)
+    volumeNode.GetRASToIJKMatrix(t1)
+    return arrayFromVTKMatrix(t1)
+
+def run_crop_volume_single(cropInputNode, roiNode, spacing=[1.25,1.25,1.25], device='cuda'):
     src_img = img_from_volumeNode(cropInputNode)
+    src_img_origin = np.array(cropInputNode.GetOrigin())
+    # src_img_RAStoIJK_torch = torch.tensor(src_img_RAStoIJK, dtype=torch.get_default_dtype(), device=device)
+
     src_img_torch = torch.Tensor(np.ascontiguousarray(src_img)).to(dtype=torch.get_default_dtype(), device=device)[None,None,:,:,:]
     
+    # roiNode defined in RAS (bounds, center, etc.)
     tgt_shape = (np.array(roiNode.GetSize())/np.array(spacing)).astype(int)
-    crop_center = np.array(roiNode.GetCenter())
+    roi_bounds = np.array(roiNode.GetSize())
+    roi_center = np.array(roiNode.GetCenter())
+    roi_corner = roi_center - roi_bounds/2
 
-    src_spacing = np.array(cropInputNode.GetSpacing())
+    # src_spacing = np.array(cropInputNode.GetSpacing()) # already embedded in src_img_RAStoIJK
     dst_spacing = np.array(spacing)
-    downsample_ratio = dst_spacing / src_spacing
 
-    src_to_tgt_transformation = torch.linalg.inv(torch.tensor([
-        [1*downsample_ratio[0],0,0,crop_center[0]-tgt_shape[0]*downsample_ratio[0]/2],
-        [0,1*downsample_ratio[1],0,crop_center[1]-tgt_shape[1]*downsample_ratio[1]/2],
-        [0,0,1*downsample_ratio[2],crop_center[2]-tgt_shape[2]*downsample_ratio[2]/2],
+    '''
+    1. get sample coordinates in RAS
+        - roi always stays in RAS
+        - tgt_img_RAS is expected to stay orthogonal to canonical axes
+        - tgt_ras: dst_spacing in RAS, origin at roi_corner
+    2. conver RAS coordinates to src_img_IJK
+    '''
+    tgt_IJKtoRAS = np.array([
+        [dst_spacing[0],0,0, roi_corner[0]],
+        [0,dst_spacing[1],0, roi_corner[1]],
+        [0,0,dst_spacing[2], roi_corner[2]],
         [0,0,0,1],
-    ], dtype=torch.get_default_dtype(), device=device))
+    ]) # voxel in IJK -> dst_spacing in RAS, [0,0,0] ijk origin -> roi_corner
+    src_img_RAStoIJK = get_RAStoIJK(cropInputNode)
+    tgt_to_src_transformation = np.dot(src_img_RAStoIJK, tgt_IJKtoRAS)
 
+    src_to_tgt_transformation = torch.linalg.inv(torch.tensor(tgt_to_src_transformation, dtype=torch.get_default_dtype(), device=device))
     cropped_img_torch = dcvm.transforms.apply_linear_transform_on_img_torch(src_img_torch, src_to_tgt_transformation, tgt_shape, grid_sample_mode='bilinear')
 
     return cropped_img_torch
@@ -97,7 +151,7 @@ def preprocess_img(img):
         img = dcvm.transforms.ct_normalize(img, min_bound=-158.0, max_bound=864.0)
     return img
 
-def run_heart_single(pytorch_model_heart, cropped_img, verts_template_torch, heart_elems, heart_cell_types, heart_faces, origin_translate=[0,0,0], downsample_ratio=[1,1,1]):
+def run_heart_single(pytorch_model_heart, cropped_img, verts_template_torch, heart_elems, heart_cell_types, heart_faces, cropOutputNode):
     img = cropped_img.clone()
     device = img.device
     img_size = list(img.squeeze().shape)
@@ -108,8 +162,10 @@ def run_heart_single(pytorch_model_heart, cropped_img, verts_template_torch, hea
         interp_field_list = dcvm.transforms.interpolate_rescale_field_torch(displacement_field_tuple, [verts_template_torch.to(device).unsqueeze(0)], img_size=img_size)
         transformed_verts_np = dcvm.transforms.move_verts_with_field([verts_template_torch.to(device).unsqueeze(0)], interp_field_list)[0].squeeze().cpu().numpy()
 
-    transformed_verts_np *= np.array(downsample_ratio) # assume 1mm/voxel --> 1*downsample_ratio mm/voxel
-    transformed_verts_np += np.array(origin_translate)[None,:]
+    # transformed_verts_np in target img IJK coordinates. Need to convert to RAS coordinates.
+    tgt_ijk_to_ras = get_IJKtoRAS(cropOutputNode)
+    transformed_verts_homo_np = np.concatenate([transformed_verts_np, np.ones([transformed_verts_np.shape[0], 1])], axis=1).T
+    transformed_verts_np = np.dot(tgt_ijk_to_ras, transformed_verts_homo_np)[:3,:].T
 
     mesh_pv_dict = {}
     for key in heart_elems.keys():
@@ -119,19 +175,25 @@ def run_heart_single(pytorch_model_heart, cropped_img, verts_template_torch, hea
     
     return mesh_pv_dict
 
-def run_ca2_single(pytorch_model_ca2, cropped_img, origInputNode, origin_translate=[0,0,0], downsample_ratio=[1,1,1]):
+def run_ca2_single(pytorch_model_ca2, cropped_img, origInputNode, cropOutputNode):
     with torch.no_grad():
         output = pytorch_model_ca2(cropped_img) # output: [1,1,128,128,128]
     
     ca2_cropped_pv = dcvm.ops.seg_to_polydata(output.squeeze().cpu().numpy())
     ca2_pv = ca2_cropped_pv.copy()
-    ca2_pv.points *= np.array(downsample_ratio)
-    ca2_pv.points += np.array(origin_translate)[None,:]
+
+    # ca2_pv.points in target img IJK coordinates. Need to convert to RAS coordinates, and then into source img IJK coordinates.
+    ca2_pv_points = ca2_pv.points.copy()
+    tgt_ijk_to_ras = get_IJKtoRAS(cropOutputNode)
+    ras_to_src_ijk = get_RAStoIJK(origInputNode)
+    ca2_pv_points_homo = np.concatenate([ca2_pv_points, np.ones([ca2_pv_points.shape[0], 1])], axis=1).T
+    ca2_pv.points = np.dot(ras_to_src_ijk, np.dot(tgt_ijk_to_ras, ca2_pv_points_homo))[:3,:].T
 
     if isinstance(origInputNode, slicer.vtkMRMLSequenceNode):
         inputVolumeNode = origInputNode.GetNthDataNode(0)
     elif isinstance(origInputNode, slicer.vtkMRMLScalarVolumeNode):
         inputVolumeNode = origInputNode
-    ca2_seg = dcvm.ops.polydata_to_seg(ca2_pv, dims=inputVolumeNode.GetImageData().GetDimensions(), spacing=inputVolumeNode.GetSpacing(), origin=inputVolumeNode.GetOrigin())
+    # ca2_pv already in ijk coordinates, don't need to mess with spacing or origin
+    ca2_seg = dcvm.ops.polydata_to_seg(ca2_pv, dims=inputVolumeNode.GetImageData().GetDimensions(), spacing=[1,1,1], origin=[0,0,0])
     
     return ca2_pv, ca2_seg

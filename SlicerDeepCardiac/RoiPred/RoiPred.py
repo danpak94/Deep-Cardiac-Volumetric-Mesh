@@ -711,8 +711,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     self.pytorch_model_heart,
                     pytorch_input_img,
                     self.verts_template_torch, self.heart_elems, self.heart_cell_types, self.heart_faces,
-                    origin_translate = - np.array(cropInputNode.GetOrigin()) + np.array(cropOutputNode.GetOrigin()),
-                    downsample_ratio = spacing,
+                    cropOutputNode,
                 )
                 modelNodes_dict = helper_lib.update_model_nodes_from_pv_dict(mesh_pv_dict, self.modelNames_dict)
                 helper_lib.update_model_nodes_display(list(modelNodes_dict.values()))
@@ -726,8 +725,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     self.pytorch_model_ca2,
                     pytorch_input_img,
                     cropInputNode,
-                    origin_translate = - np.array(cropInputNode.GetOrigin()) + np.array(cropOutputNode.GetOrigin()),
-                    downsample_ratio = spacing,
+                    cropOutputNode,
                 )
                 # helper_lib.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'}) # for debugging. pv-->model conversion implemented before array-->segment
                 segmentationNode = helper_lib.update_seg_node_from_np(ca2_seg, self.segmentationNodeName, self.segmentName, cropInputNode)
@@ -749,8 +747,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                         self.pytorch_model_heart,
                         pytorch_input_img,
                         self.verts_template_torch, self.heart_elems, self.heart_cell_types, self.heart_faces,
-                        origin_translate = - np.array(cropInputNode.GetNthDataNode(0).GetOrigin()) + np.array(cropOutputNode.GetNthDataNode(0).GetOrigin()),
-                        downsample_ratio = spacing,
+                        cropOutputNode,
                     )
                     mesh_pv_dict_list.append(mesh_pv_dict)
                 modelSequenceNodes_dict = helper_lib.update_model_sequence_nodes_from_pv_dict_list(mesh_pv_dict_list, self.modelNames_dict)
@@ -767,8 +764,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                         self.pytorch_model_ca2,
                         pytorch_input_img,
                         cropInputNode,
-                        origin_translate = - np.array(cropInputNode.GetNthDataNode(0).GetOrigin()) + np.array(cropOutputNode.GetNthDataNode(0).GetOrigin()),
-                        downsample_ratio = spacing,
+                        cropOutputNode,
                     )
                     ca2_seg_list.append(ca2_seg)
                 # # helper_lib.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'}) # for debugging. pv-->model conversion implemented before array-->segment
