@@ -1,6 +1,7 @@
 import numpy as np
 import pyvista as pv
 import vtk
+from vtk.util import numpy_support
 
 def mesh_to_PolyData(verts, faces):
     '''
@@ -119,13 +120,12 @@ def seg_to_polydata(ca2_seg, isolevel=0.5, dims=None, spacing=[1,1,1], origin=[0
 
     return ca2_pv
 
-def polydata_to_seg(mesh_pv, dims=None, spacing=[1,1,1], origin=None, tolerance=0.0, return_dims_spacing_origin=False):
+def polydata_to_seg(mesh_pv, dims=None, spacing=[1,1,1], origin=[0,0,0], tolerance=0.0, return_dims_spacing_origin=False):
     '''
     NOTE: Use uniform dims and spacing.. idk why, but non-uniform dims mess everything up for the output
     '''
-    if origin is None:
-        origin = np.floor(np.array(mesh_pv.bounds)[[0,2,4]]) - 3
     if dims is None:
+        # determine smallest possible UniformGrid without cutting off mesh_pv
         max_len_dim = np.ceil(np.array([
             mesh_pv.bounds[1]-mesh_pv.bounds[0],
             mesh_pv.bounds[3]-mesh_pv.bounds[2],
@@ -133,15 +133,16 @@ def polydata_to_seg(mesh_pv, dims=None, spacing=[1,1,1], origin=None, tolerance=
         ])/np.array(spacing)).astype(int).max()
         dims = [max_len_dim + int(20/min(spacing))]*3 # for uniform dimensions.. idk why, but non-uniform dimensions mess everything up for the output
 
-    img_background = pv.UniformGrid(dimensions=dims[::-1], spacing=spacing, origin=origin)
+        origin = np.floor(np.array(mesh_pv.bounds)[[0,2,4]]) - 3
+
+    img_background = pv.UniformGrid(dimensions=dims, spacing=spacing, origin=origin)
     img_background.point_data['values'] = np.ones(dims).flatten()
 
     stencil_filter = vtk.vtkPolyDataToImageStencil()
     stencil_filter.SetInputData(mesh_pv)
     stencil_filter.SetOutputOrigin(origin)
     stencil_filter.SetOutputSpacing(spacing)
-    # stencil_filter.SetOutputWholeExtent([0, dims[0]-1, 0, dims[1]-1, 0, dims[2]-1])
-    stencil_filter.SetOutputWholeExtent([0, dims[2]-1, 0, dims[1]-1, 0, dims[0]-1])
+    stencil_filter.SetOutputWholeExtent([0, dims[0]-1, 0, dims[1]-1, 0, dims[2]-1])
     stencil_filter.SetTolerance(tolerance)
     stencil_filter.Update()
 
@@ -152,8 +153,8 @@ def polydata_to_seg(mesh_pv, dims=None, spacing=[1,1,1], origin=None, tolerance=
     occ_grid.SetBackgroundValue(0)
     occ_grid.Update()
 
-    seg = vtk.util.numpy_support.vtk_to_numpy(occ_grid.GetOutput().GetPointData().GetScalars()).reshape(dims)
-    seg = seg.transpose([2,1,0])
+    seg = vtk.util.numpy_support.vtk_to_numpy(occ_grid.GetOutput().GetPointData().GetScalars()).reshape(dims[::-1])
+    seg = seg.transpose(2,1,0)
 
     if return_dims_spacing_origin:
         return seg, [dims, spacing, origin]

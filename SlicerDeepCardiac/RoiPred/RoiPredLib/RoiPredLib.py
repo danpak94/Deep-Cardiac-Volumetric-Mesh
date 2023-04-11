@@ -132,6 +132,6 @@ def run_ca2_single(pytorch_model_ca2, cropped_img, origInputNode, origin_transla
         inputVolumeNode = origInputNode.GetNthDataNode(0)
     elif isinstance(origInputNode, slicer.vtkMRMLScalarVolumeNode):
         inputVolumeNode = origInputNode
-    ca2_seg = dcvm.ops.polydata_to_seg(ca2_pv, dims=inputVolumeNode.GetImageData().GetDimensions()[::-1], spacing=inputVolumeNode.GetSpacing(), origin=inputVolumeNode.GetOrigin())
+    ca2_seg = dcvm.ops.polydata_to_seg(ca2_pv, dims=inputVolumeNode.GetImageData().GetDimensions(), spacing=inputVolumeNode.GetSpacing(), origin=inputVolumeNode.GetOrigin())
     
     return ca2_pv, ca2_seg
