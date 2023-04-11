@@ -33,7 +33,8 @@
     - Select the "Deep-Cardiac-Volumetric-Mesh/SlicerDeepCardiac" folder
     - Follow prompts (check everything & say yes)
 
-"ROI pred" should be ready! (icon: <img src="SlicerDeepCardiac/RoiPred/Resources/Icons/RoiPred.png" width="20">)
+4. "ROI pred" module should be ready! (icon: <img src="SlicerDeepCardiac/RoiPred/Resources/Icons/RoiPred.png" width="20">)
+    - Modules &rarr; SlicerDeepCardiac &rarr; ROI pred
 
 ### Quick start: ROI pred
 
