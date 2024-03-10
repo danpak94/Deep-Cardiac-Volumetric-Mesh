@@ -9,9 +9,9 @@ def install_missing_pkgs_in_slicer():
     """
 
     pkg_and_install = {
-        "pyvista": "pyvista",
-        "gdown": "gdown",
-        "matplotlib": "matplotlib",
+        "pyvista": "pyvista==0.43.3",
+        "matplotlib": "matplotlib==3.8.3",
+        "pyacvd": "pyacvd==0.2.10",
         "torch": "torch==1.13.0+cu116 torchvision==0.14.0+cu116 torchaudio==0.13.0 --extra-index-url https://download.pytorch.org/whl/cu116",
     }
 
@@ -23,7 +23,11 @@ def install_missing_pkgs_in_slicer():
             importlib.import_module(pkg_name)
         except ModuleNotFoundError as e:
             slicer.util.setPythonConsoleVisible(True)
-            if slicer.util.confirmOkCancelDisplay("'ROI pred' module requires '{}' Python package. Click OK to install it now.".format(pkg_name)):
+            popup_message = "'ROI pred' module requires '{}' Python package. Click OK to install it now. \n\n{}".format(pkg_name, install_command)
+            if pkg_name == 'torch':
+                popup_message = "ATTENTION: this package may take a while to install. " + popup_message
+
+            if slicer.util.confirmOkCancelDisplay(popup_message):
                 # with slicer.util.displayPythonShell():
                 slicer.util.pip_install(install_command)
                 importlib.import_module(pkg_name)

@@ -3,14 +3,16 @@ import torch
 
 class DimensionConverter():
     '''
-    going to and from [0, dim_size] and [-1, 1]
+    originally going to and from [0, dim_size-1] and [-1, 1]
+    now going to and from [offset, dim_size-1+offset] and [-1, 1]
     '''
-    def __init__(self, dim_size):
+    def __init__(self, dim_size, offset=0):
         self.dim_size = dim_size - 1 # minus 1 here b/c if img has size 64, we want [0,63] range
+        self.offset = offset
     
     def to_dim_size(self, x):
         m = self.dim_size/2
-        b = self.dim_size/2
+        b = self.offset + self.dim_size/2
         
         y = m*x + b
         
@@ -18,7 +20,7 @@ class DimensionConverter():
     
     def from_dim_size(self, x):
         m = 2/self.dim_size
-        b = -1
+        b = -1 - 2*self.offset/self.dim_size
         
         y = m*x + b
         
@@ -26,7 +28,7 @@ class DimensionConverter():
 
 class DimensionConverterDP():
     '''
-    going to and from [0, dim_size] and [-1, 1]
+    going to and from [0, dim_size-1] and [-1, 1]
     '''
     def __init__(self, shape):
         self.shape = np.array(shape) - 1 # minus 1 here b/c if img has size 64, we want [0,63] range

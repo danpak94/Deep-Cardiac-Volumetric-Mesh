@@ -95,47 +95,48 @@ def get_verts_faces_from_pyvista(mesh_pv):
 def unstructured_to_polydata(unstructured_pv):
     return mesh_to_PolyData(*get_verts_faces_from_pyvista(unstructured_pv))
 
-def seg_to_polydata(ca2_seg, isolevel=0.5, dims=None, spacing=[1,1,1], origin=[0,0,0], smooth=True, volume_threshold=0.0, subdivide=0, contour_method='contour'):
-    if ca2_seg.sum() == 0: # check seg
-        return None
+def seg_to_polydata(seg, isolevel=0.5, dims=None, spacing=[1,1,1], origin=[0,0,0], smooth=True, volume_threshold=0.0, subdivide=0, contour_method='contour'):
+    if seg.sum() == 0: # check seg
+        return pv.PolyData()
     
     if dims is None:
-        dims = ca2_seg.shape
-    ca2_seg_pv = pv.UniformGrid(dimensions=dims, spacing=spacing, origin=origin)
-    ca2_seg_pv.point_data['values'] = ca2_seg.flatten(order='F')
-    ca2_pv = ca2_seg_pv.contour([isolevel], method=contour_method)
+        dims = seg.shape
+    seg_pv = pv.ImageData(dimensions=dims, spacing=spacing, origin=origin)
+    seg_pv.point_data['values'] = seg.flatten(order='F')
+    mesh_pv = seg_pv.contour([isolevel], method=contour_method)
     if volume_threshold != 0:
-        bodies_orig = ca2_pv.split_bodies()
+        bodies_orig = mesh_pv.split_bodies()
         multi_bodies = pv.MultiBlock([body for body in bodies_orig if unstructured_to_polydata(body).volume>volume_threshold]) # filter ca2 chunks by volume
         if len(multi_bodies) > 0: # check after volume threshold
-            ca2_pv = mesh_to_PolyData(*get_verts_faces_from_pyvista(multi_bodies.combine()))
+            mesh_pv = mesh_to_PolyData(*get_verts_faces_from_pyvista(multi_bodies.combine()))
         else:
-            return None
+            return pv.PolyData()
     
-    ca2_pv.clear_data()
+    mesh_pv.clear_data()
     if smooth:
-        ca2_pv = ca2_pv.smooth(n_iter=5, relaxation_factor=0.01) # smooth ca2 chunks
+        mesh_pv = mesh_pv.smooth(n_iter=5, relaxation_factor=0.01) # smooth ca2 chunks
     if subdivide > 0:
-        ca2_pv = ca2_pv.subdivide(subdivide) # makes ca2_smooth higher resolution, much better when removing nodes
+        mesh_pv = mesh_pv.subdivide(subdivide) # makes ca2_smooth higher resolution, much better when removing nodes
 
-    return ca2_pv
+    return mesh_pv
 
-def polydata_to_seg(mesh_pv, dims=None, spacing=[1,1,1], origin=[0,0,0], tolerance=0.0, return_dims_spacing_origin=False):
+def get_default_dims_spacing_origin(mesh_pv, spacing=[1,1,1], wiggle_room=10):
+    dims = (np.ceil(np.array([
+        mesh_pv.bounds[1]-mesh_pv.bounds[0],
+        mesh_pv.bounds[3]-mesh_pv.bounds[2],
+        mesh_pv.bounds[5]-mesh_pv.bounds[4]
+    ])/np.array(spacing)) + 2*wiggle_room/np.array(spacing)).astype(int)
+    origin = np.floor(np.array(mesh_pv.bounds)[[0,2,4]]) - wiggle_room
+    return dims, spacing, origin
+
+def polydata_to_seg(mesh_pv, dims=None, spacing=[1,1,1], origin=[0,0,0], tolerance=0.0, wiggle_room=10, return_dims_spacing_origin=False):
     '''
     NOTE: Use uniform dims and spacing.. idk why, but non-uniform dims mess everything up for the output
     '''
     if dims is None:
-        # determine smallest possible UniformGrid without cutting off mesh_pv
-        max_len_dim = np.ceil(np.array([
-            mesh_pv.bounds[1]-mesh_pv.bounds[0],
-            mesh_pv.bounds[3]-mesh_pv.bounds[2],
-            mesh_pv.bounds[5]-mesh_pv.bounds[4]
-        ])/np.array(spacing)).astype(int).max()
-        dims = [max_len_dim + int(20/min(spacing))]*3 # for uniform dimensions.. idk why, but non-uniform dimensions mess everything up for the output
+        dims, spacing, origin = get_default_dims_spacing_origin(mesh_pv, spacing=spacing, wiggle_room=wiggle_room)
 
-        origin = np.floor(np.array(mesh_pv.bounds)[[0,2,4]]) - 3
-
-    img_background = pv.UniformGrid(dimensions=dims, spacing=spacing, origin=origin)
+    img_background = pv.ImageData(dimensions=dims, spacing=spacing, origin=origin)
     img_background.point_data['values'] = np.ones(dims).flatten()
 
     stencil_filter = vtk.vtkPolyDataToImageStencil()
@@ -160,3 +161,28 @@ def polydata_to_seg(mesh_pv, dims=None, spacing=[1,1,1], origin=[0,0,0], toleran
         return seg, [dims, spacing, origin]
     else:
         return seg
+    
+def get_edges_from_pv(edges_pv):
+    return edges_pv.lines.reshape(-1,3)[:,1:].tolist()
+
+def get_border_edges_pv(mesh_pv):
+    return mesh_pv.extract_feature_edges(boundary_edges=True, non_manifold_edges=False, feature_edges=False, manifold_edges=False)
+
+def seg_to_UniformGrid(seg, dims=None, spacing=[1,1,1], origin=[0,0,0]):
+    if dims is None:
+        dims = np.array(seg.shape)+1
+    uniformgrid_pv = pv.ImageData(dimensions=dims, spacing=spacing, origin=origin)
+    uniformgrid_pv.cell_data["values"] = seg.flatten(order='F')  # Flatten the array!
+    uniformgrid_pv = uniformgrid_pv.extract_cells(np.where(uniformgrid_pv.cell_data['values']>0))
+    uniformgrid_pv.clear_cell_data()
+    return uniformgrid_pv
+
+def img_to_UniformGrid(img, dims=None, spacing=None, origin=None):
+    if dims is None:
+        dims = np.array(img.shape)
+    img_grid = pv.ImageData(dimensions=dims, spacing=spacing, origin=origin)
+    img_grid.point_data["values"] = img.flatten(order='F')  # Flatten the array!
+    return img_grid
+
+def get_bbox_center(mesh_pv):
+    return np.array(mesh_pv.bounds).reshape(-1,2).mean(axis=1)

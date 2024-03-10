@@ -24,11 +24,28 @@ try:
     import numpy as np
     import torch
     import pyvista as pv
+    import matplotlib
+    colors_stl = matplotlib.colormaps['Accent'].colors
 
     import dcvm
     import HelperLib as helper_lib
     import RoiPredLib.RoiPredLib as roi_pred_lib
     importlib.reload(roi_pred_lib)
+    importlib.reload(roi_pred_lib)
+    importlib.reload(roi_pred_lib)
+    import types
+    def reload_package(package):
+        """Recursively reload all modules in the given package."""
+        importlib.reload(package)
+        for _, module in package.__dict__.items():
+            if isinstance(module, types.ModuleType) and (module.__name__.startswith("dcvm") or module.__name__.startswith("HelperLib")):
+                reload_package(module)
+    reload_package(dcvm)
+    reload_package(dcvm)
+    reload_package(dcvm)
+    reload_package(helper_lib)
+    reload_package(helper_lib)
+    reload_package(helper_lib)
 except:
     traceback.print_exc()
     print(' ')
@@ -137,7 +154,11 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.useGPU.toggled.connect(self.updateParameterNodeFromGUI)
         self.ui.heartVisibility.toggled.connect(self.updateParameterNodeFromGUI)
         self.ui.ca2Visibility.toggled.connect(self.updateParameterNodeFromGUI)
-        self.ui.templateFilenamePrefix.textChanged.connect(self.updateParameterNodeFromGUI)
+        self.ui.heartStlVisibility.toggled.connect(self.updateParameterNodeFromGUI)
+        self.ui.templateFilePath.currentPathChanged.connect(self.updateParameterNodeFromGUI)
+        self.ui.aortaLvThickness.textChanged.connect(self.updateParameterNodeFromGUI)
+        self.ui.leafletThickness.textChanged.connect(self.updateParameterNodeFromGUI)
+        self.ui.fuseLeaflets.toggled.connect(self.updateParameterNodeFromGUI)
 
         # self.ui.pytorchOutputSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateParameterNodeFromGUI)
 
@@ -150,27 +171,33 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.ca2ModelLoadButton.clicked.connect(self.onCa2ModelLoadButton)
         self.ui.crosshairPosButton.clicked.connect(self.onCrosshairPosButton)
         self.ui.modelPredCenterButton.clicked.connect(self.onModelPredCenterButton)
-        self.ui.downloadDataButton.clicked.connect(self.onDownloadDataButton)
+        self.ui.setupDataButton.clicked.connect(self.onSetupDataButton)
         self.ui.heartExpDir.directoryChanged.connect(self.updateHeartExpDir)
         self.ui.ca2ExpDir.directoryChanged.connect(self.updateCa2ExpDir)
         self.ui.useGPU.clicked.connect(self.onUseGpuButton)
         self.ui.cropAndRunButton.clicked.connect(self.onCropAndRunButton)
         self.ui.saveOutputsInpButton.clicked.connect(self.onSaveOutputsInpButton)
+        self.ui.modelsToStlButton.clicked.connect(self.onModelsToStlButton)
+        self.ui.saveOutputsStlButton.clicked.connect(self.onSaveOutputsStlButton)
         self.ui.removeOutputNodesButton.clicked.connect(self.onRemoveOutputNodesButton)
 
         self.ui.roiVisibility.clicked.connect(self.onRoiVisibility)
         self.ui.heartVisibility.clicked.connect(self.onHeartVisibility)
         self.ui.ca2Visibility.clicked.connect(self.onCa2Visibility)
+        self.ui.heartStlVisibility.clicked.connect(self.onHeartStlVisibility)
 
         self.updateRoiVisibilityCheckBox = helper_lib.UpdateCheckboxWithDataNodeVisibility(self.ui.roiVisibility)
         self.updateHeartVisibilityCheckBox = helper_lib.UpdateCheckboxWithDataNodeVisibility(self.ui.heartVisibility)
         self.updateCa2VisibilityCheckbox = helper_lib.UpdateCheckboxWithSegmentVisibility(self.ui.ca2Visibility, self.segmentationNodeName_suffix, [self.ca2_segmentName_suffix])
+        self.updateHeartStlVisibilityCheckBox = helper_lib.UpdateCheckboxWithDataNodeVisibility(self.ui.heartStlVisibility)
 
         self.crosshair = slicer.util.getNode('Crosshair')
 
         self.ui.resetCollapsibleButton.checked = False
-        self.ui.saveCollapsibleButton.checked = False
+        self.ui.stlCollapsibleButton.checked = False
         self.ui.volumeInfoCollapsibleButton.checked = False
+        self.ui.aortaLvThickness.lineEdit().setReadOnly(True)
+        self.ui.leafletThickness.lineEdit().setReadOnly(True)
 
         try:
             self.progress_bar_and_run_time = helper_lib.ProgressBarAndRunTime(self.ui.progressBar)
@@ -218,6 +245,10 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         Called each time the user opens a different module.
         If we update this, need to restart 3D slicer to see the effects
         """
+        if self._parameterNode.GetNodeReference("roiNode") is not None:
+            roiNode = self._parameterNode.GetNodeReference("roiNode")
+            roiNode.GetDisplayNode().SetVisibility(False)
+
         # Do not react to parameter node changes (GUI wlil be updated when the user enters into the module)
         if self._parameterNode is not None and self.hasObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self.updateGUIFromParameterNode):
             self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self.updateGUIFromParameterNode)
@@ -301,7 +332,7 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self.ui.heartExpDir.directory = self._parameterNode.GetParameter("heartExpDir")
         self.ui.ca2ExpDir.directory = self._parameterNode.GetParameter("ca2ExpDir")
-        self.ui.templateFilenamePrefix.text = self._parameterNode.GetParameter("templateFilenamePrefix")
+        self.ui.templateFilePath.currentPath = self._parameterNode.GetParameter("templateFilePath")
 
         self.ui.originalVolumeSpacingDisplay0.text = self._parameterNode.GetParameter("originalVolumeSpacingDisplay0")
         self.ui.originalVolumeSpacingDisplay1.text = self._parameterNode.GetParameter("originalVolumeSpacingDisplay1")
@@ -321,9 +352,14 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.useGPU.checked = True if self._parameterNode.GetParameter("useGPU") == "true" else False
         self.ui.heartVisibility.checked = True if self._parameterNode.GetParameter("heartVisibility") == "true" else False
         self.ui.ca2Visibility.checked = True if self._parameterNode.GetParameter("ca2Visibility") == "true" else False
+        self.ui.heartStlVisibility.checked = True if self._parameterNode.GetParameter("heartStlVisibility") == "true" else False
         self.ui.heartModelLoadedCheck.checked = True if self._parameterNode.GetParameter("heartModelLoaded") == "true" else False
         self.ui.templateLoadedCheck.checked = True if self._parameterNode.GetParameter("templateLoaded") == "true" else False
         self.ui.ca2ModelLoadedCheck.checked = True if self._parameterNode.GetParameter("ca2ModelLoaded") == "true" else False
+
+        self.ui.aortaLvThickness.setValue(float(self._parameterNode.GetParameter("aortaLvThickness")))
+        self.ui.leafletThickness.setValue(float(self._parameterNode.GetParameter("leafletThickness")))
+        self.ui.fuseLeaflets.checked = True if self._parameterNode.GetParameter("fuseLeaflets") == "true" else False
         
         ''' conditions for enabling/disabling buttons '''
         if self._parameterNode.GetNodeReference("roiNode") is None:
@@ -349,9 +385,9 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         else:
             self.ui.cropAndRunButton.enabled = False
 
-        self.ui.roiVisibility.enabled = True if self._parameterNode.GetNodeReference("roiNode") else False
-        self.ui.heartVisibility.enabled = True if self._parameterNode.GetParameter("heartRunCompleted") == "true" else False
-        self.ui.ca2Visibility.enabled = True if self._parameterNode.GetParameter("ca2RunCompleted") == "true" else False
+        # self.ui.roiVisibility.enabled = True if self._parameterNode.GetNodeReference("roiNode") else False
+        # self.ui.heartVisibility.enabled = True if self._parameterNode.GetParameter("heartRunCompleted") == "true" else False
+        # self.ui.ca2Visibility.enabled = True if self._parameterNode.GetParameter("ca2RunCompleted") == "true" else False
 
         # All the GUI updates are done
         self._updatingGUIFromParameterNode = False
@@ -384,10 +420,15 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._parameterNode.SetParameter("roiVisibility", "true" if self.ui.roiVisibility.checked else "false")
         self._parameterNode.SetParameter("heartVisibility", "true" if self.ui.heartVisibility.checked else "false")
         self._parameterNode.SetParameter("ca2Visibility", "true" if self.ui.ca2Visibility.checked else "false")
+        self._parameterNode.SetParameter("heartStlVisibility", "true" if self.ui.heartStlVisibility.checked else "false")
         self._parameterNode.SetParameter("useGPU", "true" if self.ui.useGPU.checked else "false")
         self._parameterNode.SetParameter("heartExpDir", self.ui.heartExpDir.directory)
         self._parameterNode.SetParameter("ca2ExpDir", self.ui.ca2ExpDir.directory)
-        self._parameterNode.SetParameter("templateFilenamePrefix", self.ui.templateFilenamePrefix.text)
+        self._parameterNode.SetParameter("templateFilePath", self.ui.templateFilePath.currentPath)
+
+        self._parameterNode.SetParameter("aortaLvThickness", self.ui.aortaLvThickness.text)
+        self._parameterNode.SetParameter("leafletThickness", self.ui.leafletThickness.text)
+        self._parameterNode.SetParameter("fuseLeaflets", "true" if self.ui.fuseLeaflets.checked else "false")
 
         self._parameterNode.EndModify(wasModified)
 
@@ -402,9 +443,11 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             inputNodeName = self.cropInputSelector.currentNode().GetName()
             if hasattr(self, "heart_mesh_keys"): # to prevent issues for ca2_prediction_only cases
                 self.modelNames_dict = {key: '{}_{}'.format(inputNodeName, key) for key in self.heart_mesh_keys}
+                self.stlNames_dict = {key: '{}_{}'.format(inputNodeName, key) for key in self.heart_stl_keys}
             self.heartModelFolderName = "{}{}".format(inputNodeName, self.heartModelFolderName_suffix)
             self.segmentationNodeName = "{}{}".format(inputNodeName, self.segmentationNodeName_suffix)
             self.segmentName = "{}{}".format(inputNodeName, self.ca2_segmentName_suffix)
+            self.heartStlFolderName = "{}{}".format(inputNodeName, self.heartStlFolderName_suffix)
             self.inputNodeName = inputNodeName
 
     def updateVisibilityCheckBoxes(self):
@@ -422,6 +465,11 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         else:
             segmentationNode = None
 
+        if hasattr(self, "heartStlFolderName"):
+            heartStlFolderNode = slicer.util.getFirstNodeByClassByName("vtkMRMLFolderDisplayNode", self.heartStlFolderName)
+        else:
+            heartStlFolderNode = None
+
         if roiNode:
             self.updateRoiVisibilityCheckBox(roiNode)
         else:
@@ -436,6 +484,11 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.updateCa2VisibilityCheckbox(segmentationNode)
         else:
             self.updateCa2VisibilityCheckbox.checkbox.checked = False
+
+        if heartStlFolderNode:
+            self.updateHeartStlVisibilityCheckBox(heartStlFolderNode)
+        else:
+            self.updateHeartStlVisibilityCheckBox.checkbox.checked = False
 
     def displaySelectedNode(self, caller=None, displayOutputs=True):
         """
@@ -473,6 +526,10 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             segmentNames, _, _ = helper_lib.get_all_segments_containing_suffix(self.ca2_segmentName_suffix)
             for segmentName in segmentNames:
                 helper_lib.set_segment_visibility(segmentName, False)
+
+            folderNames, _, _ = helper_lib.get_all_folders_containing_suffix(self.heartStlFolderName_suffix)
+            for folderName in folderNames:
+                helper_lib.set_folder_visibility(folderName, False)
 
     def updateVolumeInfo(self):
         if self.cropInputSelector.currentNode():
@@ -592,19 +649,12 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         else:
             self._parameterNode.GetNodeReference("roiNode").GetDisplayNode().SetVisibility(False)
 
-    def onDownloadDataButton(self):
+    def onSetupDataButton(self):
         self.progress_bar_and_run_time.start(maximum=1)
-        try:
-            dcvm.utils.download_data()
-        except Exception:
-            traceback.print_exc()
-            print(' ')
-            print("Auto-download failed.")
-            print("1. Use a browser to open the link: {}".format(dcvm.utils.data_url))
-            print("2. Download and unzip the contents into {}".format(dcvm.utils.temp_data_dir))
-            print("3. Click the 'Download & Relocate ...' button again")
-        
-        dcvm.utils.relocate_data()
+        if not os.path.exists(roi_pred_lib.temp_data_dir):
+            slicer.util.messageBox(f'No data folder found at:\n\n{roi_pred_lib.temp_data_dir}\n\nPlease first download & extract the .zip from a Github release')
+            
+        roi_pred_lib.relocate_data()
 
         self.progress_bar_and_run_time.end()
 
@@ -626,6 +676,13 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         segment_exists = helper_lib.set_segment_visibility(self.segmentName, self.ui.ca2Visibility.checked)
         if not segment_exists:
             self.ui.ca2Visibility.checked = False
+        self.updateVisibilityCheckBoxes() # in case this function affects other visibilities
+
+    def onHeartStlVisibility(self):
+        self.defineOutputNamesFromInputSelector()
+        folder_exists = helper_lib.set_folder_visibility(self.heartStlFolderName, self.ui.heartStlVisibility.checked, updateContentsVisibility=True)
+        if not folder_exists:
+            self.ui.heartStlVisibility.checked = False
         self.updateVisibilityCheckBoxes() # in case this function affects other visibilities
 
     def onHeartModelLoadButton(self):
@@ -655,10 +712,14 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onTemplateLoadButton(self):
         self.progress_bar_and_run_time.start(maximum=1)
 
-        template_dir = os.path.join(dcvm_parent_dir, 'template_for_deform/lv_av_aorta')
-        template_filename_prefix = self._parameterNode.GetParameter("templateFilenamePrefix")
-        self.verts_template_torch, self.heart_elems, self.heart_cell_types, self.heart_faces = dcvm.io.load_template_inference(template_dir, template_filename_prefix)
-        self.heart_mesh_keys = list(self.heart_elems.keys()) + list(self.heart_faces.keys())
+        self.heart_verts, self.heart_elems, self.heart_cell_types, self.heart_fiber_ori = torch.load(self._parameterNode.GetParameter("templateFilePath"))
+        if isinstance(self.heart_verts, torch.Tensor):
+            self.heart_verts = self.heart_verts.squeeze().cpu().numpy()
+        if len(self.heart_fiber_ori) == 0:
+            self.heart_fiber_ori = None
+        self.heart_mesh_keys = list(self.heart_elems.keys())
+        # self.verts_template_torch, self.heart_elems, self.heart_cell_types, self.heart_faces = dcvm.io.load_template_inference(template_dir, template_filename_prefix)
+        # self.heart_mesh_keys = list(self.heart_elems.keys()) + list(self.heart_faces.keys())
 
         self._parameterNode.SetParameter("templateLoaded", "true")
         
@@ -674,8 +735,6 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.pytorch_model_ca2 = self.pytorch_model_ca2.to(torch.device('cpu'))
 
     def onCropAndRunButton(self):
-        self.progress_bar_and_run_time.start(maximum=1)
-
         self.displaySelectedNode(displayOutputs=True)
         self.updateVisibilityCheckBoxes()
 
@@ -702,31 +761,41 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # volume
         if isinstance(cropInputNode, slicer.vtkMRMLScalarVolumeNode):
+            self.progress_bar_and_run_time.start(maximum=1)
+
             # pre-processing img
-            pytorch_input_img = roi_pred_lib.preprocess_img(cropped_img_torch)
+            pytorch_heart_input_img = roi_pred_lib.preprocess_img(cropped_img_torch, min_bound=-158, max_bound=864)
+            pytorch_ca2_input_img = roi_pred_lib.preprocess_img(cropped_img_torch, min_bound=-200, max_bound=1500)
 
             # run_heart_single only if heart_model and template are loaded
             if (self._parameterNode.GetParameter("heartModelLoaded") == "true") and (self._parameterNode.GetParameter("templateLoaded") == "true"):
-                mesh_pv_dict = roi_pred_lib.run_heart_single(
+                mesh_pv_dict, heart_fiber_ori_transformed = roi_pred_lib.run_heart_single(
                     self.pytorch_model_heart,
-                    pytorch_input_img,
-                    self.verts_template_torch, self.heart_elems, self.heart_cell_types, self.heart_faces,
+                    pytorch_heart_input_img,
+                    self.heart_verts, self.heart_elems, self.heart_cell_types, self.heart_fiber_ori,
                     cropOutputNode,
                 )
-                modelNodes_dict = helper_lib.update_model_nodes_from_pv_dict(mesh_pv_dict, self.modelNames_dict)
-                helper_lib.update_model_nodes_display(list(modelNodes_dict.values()))
-                helper_lib.put_models_in_folder(self.heartModelFolderName, self.modelNames_dict)
-                self._parameterNode.SetParameter("heartVisibility", "true")
-                self._parameterNode.SetParameter("heartRunCompleted", "true")
-
+                if heart_fiber_ori_transformed is not None:
+                    for key in mesh_pv_dict:
+                        mesh_pv_dict[key].cell_data['fiber_ori'] = heart_fiber_ori_transformed[key]
             # run_ca2_single only if ca2_model is loaded
             if self._parameterNode.GetParameter("ca2ModelLoaded") == "true":
                 ca2_pv, ca2_seg = roi_pred_lib.run_ca2_single(
                     self.pytorch_model_ca2,
-                    pytorch_input_img,
+                    pytorch_ca2_input_img,
                     cropInputNode,
                     cropOutputNode,
                 )
+            self.progress_bar_and_run_time.end()
+
+            if (self._parameterNode.GetParameter("heartModelLoaded") == "true") and (self._parameterNode.GetParameter("templateLoaded") == "true"):
+                modelNodes_dict = helper_lib.update_model_nodes_from_pv_dict(mesh_pv_dict, self.modelNames_dict)
+                helper_lib.update_model_nodes_display(list(modelNodes_dict.values()))
+                helper_lib.put_mrmlNodes_in_folder(self.heartModelFolderName, list(self.modelNames_dict.values()))
+
+                self._parameterNode.SetParameter("heartVisibility", "true")
+                self._parameterNode.SetParameter("heartRunCompleted", "true")
+            if self._parameterNode.GetParameter("ca2ModelLoaded") == "true":
                 # helper_lib.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'}) # for debugging. pv-->model conversion implemented before array-->segment
                 segmentationNode = helper_lib.update_seg_node_from_np(ca2_seg, self.segmentationNodeName, self.segmentName, cropInputNode)
                 helper_lib.update_seg_node_display(segmentationNode, [self.segmentName])
@@ -737,56 +806,60 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # sequence
         elif isinstance(cropInputNode, slicer.vtkMRMLSequenceNode):
-            # pre-processing imgs
-            pytorch_input_img_list = [roi_pred_lib.preprocess_img(img) for img in cropped_img_torch_list]
+            self.progress_bar_and_run_time.start(maximum=len(cropped_img_torch_list))
 
-            if (self._parameterNode.GetParameter("heartModelLoaded") == "true") and (self._parameterNode.GetParameter("templateLoaded") == "true"):
-                mesh_pv_dict_list = []
-                for pytorch_input_img in pytorch_input_img_list:
-                    mesh_pv_dict = roi_pred_lib.run_heart_single(
+            # pre-processing imgs
+            pytorch_heart_input_img_list = [roi_pred_lib.preprocess_img(img, min_bound=-158, max_bound=864) for img in cropped_img_torch_list]
+            pytorch_ca2_input_img_list = [roi_pred_lib.preprocess_img(img, min_bound=-200, max_bound=1500) for img in cropped_img_torch_list]
+
+            mesh_pv_dict_list = []
+            ca2_seg_list = []
+            for run_idx, (pytorch_heart_input_img, pytorch_ca2_input_img) in enumerate(zip(pytorch_heart_input_img_list, pytorch_ca2_input_img_list)):
+                if (self._parameterNode.GetParameter("heartModelLoaded") == "true") and (self._parameterNode.GetParameter("templateLoaded") == "true"):
+                    mesh_pv_dict, heart_fiber_ori_transformed = roi_pred_lib.run_heart_single(
                         self.pytorch_model_heart,
-                        pytorch_input_img,
-                        self.verts_template_torch, self.heart_elems, self.heart_cell_types, self.heart_faces,
+                        pytorch_heart_input_img,
+                        self.heart_verts, self.heart_elems, self.heart_cell_types, self.heart_fiber_ori,
                         cropOutputNode,
                     )
+                    if heart_fiber_ori_transformed is not None:
+                        for key in mesh_pv_dict:
+                            mesh_pv_dict[key].cell_data['fiber_ori'] = heart_fiber_ori_transformed[key]
                     mesh_pv_dict_list.append(mesh_pv_dict)
-                modelSequenceNodes_dict = helper_lib.update_model_sequence_nodes_from_pv_dict_list(mesh_pv_dict_list, self.modelNames_dict)
-                browserNode = helper_lib.update_outputSequenceBrowserNode(self.outputSequenceBrowserNodeName, imgSequenceNode=cropInputNode, modelSequenceNodes_dict=modelSequenceNodes_dict)
-                helper_lib.put_models_in_folder(self.heartModelFolderName, self.modelNames_dict)
-                self._parameterNode.SetParameter("heartVisibility", "true")
-                self._parameterNode.SetParameter("heartRunCompleted", "true")
-
-            # run_ca2_single only if ca2_model is loaded
-            if self._parameterNode.GetParameter("ca2ModelLoaded") == "true":
-                ca2_seg_list = []
-                for pytorch_input_img in pytorch_input_img_list:
+                if self._parameterNode.GetParameter("ca2ModelLoaded") == "true":
                     ca2_pv, ca2_seg = roi_pred_lib.run_ca2_single(
                         self.pytorch_model_ca2,
-                        pytorch_input_img,
+                        pytorch_ca2_input_img,
                         cropInputNode,
                         cropOutputNode,
                     )
                     ca2_seg_list.append(ca2_seg)
-                # # helper_lib.update_model_nodes_from_pv({'ca2': ca2_pv}, {'ca2': 'test_ca2'}) # for debugging. pv-->model conversion implemented before array-->segment
-                # print([ca2_seg.sum() for ca2_seg in ca2_seg_list])
+                self.progress_bar_and_run_time.step(run_idx+1)
+
+            if len(mesh_pv_dict_list) > 0:
+                modelSequenceNodes_dict = helper_lib.update_model_sequence_nodes_from_pv_dict_list(mesh_pv_dict_list, self.modelNames_dict)
+                browserNode = helper_lib.update_outputSequenceBrowserNode(self.outputSequenceBrowserNodeName, imgSequenceNode=cropInputNode, modelSequenceNodes_dict=modelSequenceNodes_dict)
+                helper_lib.put_mrmlNodes_in_folder(self.heartModelFolderName, list(self.modelNames_dict.values()))
+                self._parameterNode.SetParameter("heartVisibility", "true")
+                self._parameterNode.SetParameter("heartRunCompleted", "true")
+            if len(ca2_seg_list) > 0:
                 segSequenceNode = helper_lib.update_seg_sequence_node_from_seg_list(ca2_seg_list, self.segmentationNodeName, self.segmentName, cropInputNode)
                 browserNode = helper_lib.update_outputSequenceBrowserNode(self.outputSequenceBrowserNodeName, imgSequenceNode=cropInputNode, segSequenceNode=segSequenceNode)
                 self._parameterNode.SetParameter("ca2Visibility", "true")
                 self._parameterNode.SetParameter("ca2RunCompleted", "true")
-        
+
         helper_lib.put_outputs_under_same_subject(self.inputNodeName, self.heartModelFolderName_suffix, self.segmentationNodeName_suffix)
         self.displaySelectedNode(displayOutputs=True)
         self.updateVisibilityCheckBoxes()
-        
-        self.progress_bar_and_run_time.end()
 
     def onSaveOutputsInpButton(self):
+        self.defineOutputNamesFromInputSelector()
         inputNode = self.cropInputSelector.currentNode()
         inputNodeName = inputNode.GetName()
         # self.defineOutputNamesFromInputSelector() this is already called when changing the drop-down menu choice
 
         exp_dir = self._parameterNode.GetParameter("heartExpDir")
-        save_dir = os.path.join(exp_dir, '3d_slicer_outputs')
+        save_dir = os.path.join(exp_dir, 'heart_only_inp')
         os.makedirs(save_dir, exist_ok=True)
         
         if isinstance(inputNode, slicer.vtkMRMLSequenceNode):
@@ -801,7 +874,11 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     verts, _ = dcvm.ops.get_verts_faces_from_pyvista(list(mesh_pv_dict_nth_timepoint.values())[0])
                     elems_dict = {key: dcvm.ops.get_verts_faces_from_pyvista(mesh_pv)[1] for key, mesh_pv in mesh_pv_dict_nth_timepoint.items()} # list for 5 different comps at one time point
                     cell_types_dict = {key: mesh_pv.celltypes for key, mesh_pv in mesh_pv_dict_nth_timepoint.items()} # list for 5 different comps at one time point
-                    dcvm.io.write_inp_file(save_filepath, verts, elems_dict, cell_types_dict)
+                    if 'fiber_ori' in list(mesh_pv_dict_nth_timepoint.values())[0].cell_data.keys():
+                        dirs_dict = {key: mesh_pv.cell_data['fiber_ori'] for key, mesh_pv in mesh_pv_dict_nth_timepoint.items()}
+                    else:
+                        dirs_dict = None
+                    dcvm.io.write_inp_file(save_filepath, verts, elems_dict, cell_types_dict, dirs_dict)
                     # print('saved {}/{}'.format(itemIndex+1, modelSequence0.GetNumberOfDataNodes()))
                     self.progress_bar_and_run_time.step(itemIndex+1)
                 
@@ -814,9 +891,46 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 verts, _ = dcvm.ops.get_verts_faces_from_pyvista(list(mesh_pv_dict.values())[0])
                 elems_dict = {key: dcvm.ops.get_verts_faces_from_pyvista(mesh_pv)[1] for key, mesh_pv in mesh_pv_dict.items()}
                 cell_types_dict = {key: mesh_pv.celltypes for key, mesh_pv in mesh_pv_dict.items()}
-                dcvm.io.write_inp_file(save_filepath, verts, elems_dict, cell_types_dict)
+                if 'fiber_ori' in list(mesh_pv_dict.values())[0].cell_data.keys():
+                    dirs_dict = {key: mesh_pv.cell_data['fiber_ori'] for key, mesh_pv in mesh_pv_dict.items()}
+                else:
+                    dirs_dict = None
+                dcvm.io.write_inp_file(save_filepath, verts, elems_dict, cell_types_dict, dirs_dict)
 
         self.progress_bar_and_run_time.end()
+
+    def onModelsToStlButton(self):
+        self.progress_bar_and_run_time.start()
+
+        self.defineOutputNamesFromInputSelector()
+        modelNodes_dict = {key: node for key, modelName in self.modelNames_dict.items() for node in [node for node in slicer.util.getNodesByClass('vtkMRMLModelNode') if node.GetName() == modelName]}
+        mesh_pv_dict = {key: pv.UnstructuredGrid(modelNode.GetMesh()) for key, modelNode in modelNodes_dict.items()}
+
+        aorta_lv_pv = roi_pred_lib.get_aorta_lv_stl(mesh_pv_dict, offset_dist=float(self._parameterNode.GetParameter("aortaLvThickness")), spacing_scaling=2, pyacvd_cluster_arg=20000)
+        leaflets_pv = roi_pred_lib.get_leaflets_stl(mesh_pv_dict, offset_dist=float(self._parameterNode.GetParameter("leafletThickness"))-0.8, spacing_scaling=4, pyacvd_cluster_arg=5000, fuse_leaflets=self.ui.fuseLeaflets.checked)
+        mesh_pv_list = [aorta_lv_pv, leaflets_pv]
+        
+        modelNodes_dict = helper_lib.update_model_nodes_from_pv({name: mesh_pv for name, mesh_pv in zip(self.stlNames_dict.values(), mesh_pv_list)})
+        helper_lib.update_model_nodes_display(list(modelNodes_dict.values()), colors_stl)
+        helper_lib.put_mrmlNodes_in_folder(self.heartStlFolderName, list(self.stlNames_dict.values()))
+
+        # turn off original model displays
+        folderNames, _, _ = helper_lib.get_all_folders_containing_suffix(self.heartModelFolderName_suffix)
+        for folderName in folderNames:
+            helper_lib.set_folder_visibility(folderName, False)
+        
+        # turn on only selected input node's stl model displays
+        folderNames, _, _ = helper_lib.get_all_folders_containing_suffix(self.heartStlFolderName_suffix)
+        for folderName in folderNames:
+            helper_lib.set_folder_visibility(folderName, folderName == self.heartStlFolderName, updateContentsVisibility=True)
+
+        helper_lib.put_outputs_under_same_subject(self.inputNodeName, self.heartStlFolderName)
+        self.updateVisibilityCheckBoxes()
+        
+        self.progress_bar_and_run_time.end()
+
+    def onSaveOutputsStlButton(self):
+        print('here')
 
     def onRemoveOutputNodesButton(self):
         inputNode = self.cropInputSelector.currentNode()
@@ -887,6 +1001,8 @@ class RoiPredLogic(ScriptedLoadableModuleLogic):
         widgetObject.heartModelFolderName_suffix = "_heart" # e.g. {inputVolumeName}_heart
         widgetObject.segmentationNodeName_suffix = "_Segmentation" # e.g. {inputVolumeName}_Segmentation
         widgetObject.ca2_segmentName_suffix = "_ca2" # e.g. {inputVolumeName}_ca2
+        widgetObject.heartStlFolderName_suffix = "_heart_stl" # e.g. {inputVolumeName}_heart_stl
+        widgetObject.heart_stl_keys = ['aorta_lv_stl', 'av_leaflets_stl']
 
     def setDefaultParameters(self, parameterNode):
         """
@@ -916,8 +1032,8 @@ class RoiPredLogic(ScriptedLoadableModuleLogic):
             parameterNode.SetParameter("ca2ExpDir", os.path.join(dcvm_parent_dir, 'experiments/_newest_ca2'))
         if not parameterNode.GetParameter("followExpParams"):
             parameterNode.SetParameter("followExpParams", "false")
-        if not parameterNode.GetParameter("templateFilenamePrefix"):
-            parameterNode.SetParameter("templateFilenamePrefix", "combined_v12")
+        if not parameterNode.GetParameter("templateFilePath"):
+            parameterNode.SetParameter("templateFilePath", os.path.join(dcvm_parent_dir, "template_for_deform/combined_v12/combined_v12_inference_all.pt"))
         if not parameterNode.GetParameter("heartModelLoaded"):
             parameterNode.SetParameter("heartModelLoaded", "false")
         if not parameterNode.GetParameter("ca2ModelLoaded"):
@@ -954,6 +1070,12 @@ class RoiPredLogic(ScriptedLoadableModuleLogic):
             parameterNode.SetParameter("croppedVolumeDimensionsDisplay2", "0")
         if not parameterNode.GetParameter("useGPU"):
             parameterNode.SetParameter("useGPU", "true")
+        if not parameterNode.GetParameter("aortaLvThickness"):
+            parameterNode.SetParameter("aortaLvThickness", "1.5")
+        if not parameterNode.GetParameter("leafletThickness"):
+            parameterNode.SetParameter("leafletThickness", "0.8")
+        if not parameterNode.GetParameter("fuseLeaflets"):
+            parameterNode.SetParameter("fuseLeaflets", "false")
         
     def process(self, inputVolume, outputVolume, imageThreshold, invert=False, showResult=True):
         pass

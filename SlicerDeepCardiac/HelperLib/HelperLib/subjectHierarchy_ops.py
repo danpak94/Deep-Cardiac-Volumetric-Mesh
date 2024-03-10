@@ -32,7 +32,7 @@ class UpdateCheckboxWithSegmentVisibility():
         visibility_list += all_parents_visibility
         self.checkbox.checked = all(visibility_list)
 
-def put_outputs_under_same_subject(subjectName, folderName_suffix, segmentationName_suffix):
+def put_outputs_under_same_subject(subjectName, folderName_suffix=None, segmentationName_suffix=None):
     '''
     for each volume_node or volume_sequence_node:
     1. create a subject item with the same name
@@ -54,14 +54,18 @@ def put_outputs_under_same_subject(subjectName, folderName_suffix, segmentationN
     shNode.GetItemChildren(shNode.GetSceneItemID(), childIds, True) # recursively get all children in the scene
     for itemIdIndex in range(childIds.GetNumberOfIds()):
         shItemId = childIds.GetId(itemIdIndex)
-        if subjectName == shNode.GetItemName(shItemId) and shNode.GetItemAttribute(shItemId, 'Level') != 'Patient': # volume
+        if subjectName == shNode.GetItemName(shItemId) and shNode.GetItemAttribute(shItemId, 'Level') != 'Patient': # original volume
             shNode.SetItemParent(shItemId, subjectId)
-        if '{}{}'.format(subjectName, folderName_suffix) in shNode.GetItemName(shItemId) and shNode.GetItemAttribute(shItemId, 'Level') == 'Folder': # model folder
+        if subjectName in shNode.GetItemName(shItemId) and isinstance(shNode.GetItemDataNode(shItemId), slicer.vtkMRMLScalarVolumeNode): # all other volumes (e.g. seg geometry volume)
             shNode.SetItemParent(shItemId, subjectId)
-            shNode.SetItemExpanded(shItemId, False)
-        if '{}{}'.format(subjectName, segmentationName_suffix) in shNode.GetItemName(shItemId): # segmentation
-            shNode.SetItemParent(shItemId, subjectId)
-            shNode.SetItemExpanded(shItemId, False)
+        if folderName_suffix is not None:
+            if '{}{}'.format(subjectName, folderName_suffix) in shNode.GetItemName(shItemId) and shNode.GetItemAttribute(shItemId, 'Level') == 'Folder': # model folder
+                shNode.SetItemParent(shItemId, subjectId)
+                shNode.SetItemExpanded(shItemId, False)
+        if segmentationName_suffix is not None:
+            if '{}{}'.format(subjectName, segmentationName_suffix) in shNode.GetItemName(shItemId): # segmentation
+                shNode.SetItemParent(shItemId, subjectId)
+                shNode.SetItemExpanded(shItemId, False)
 
 def get_all_subjects_with_matching_name(name):
     shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
@@ -121,7 +125,7 @@ def get_all_models_containing_suffix(suffix):
             modelNodes.append(shNode.GetItemDataNode(shItemId))
     return modelNames, modelIds, modelNodes
 
-def put_models_in_folder(folderName, modelNames_dict):
+def put_mrmlNodes_in_folder(folderName, nodeNames):
     ''' we do this to allow for easy grouping of visualization '''
     shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
 
@@ -141,8 +145,8 @@ def put_models_in_folder(folderName, modelNames_dict):
     for itemIdIndex in range(childIds.GetNumberOfIds()): # for all children of the main Subject Hierarchy
         shItemId = childIds.GetId(itemIdIndex)
         dataNode = shNode.GetItemDataNode(shItemId)
-        if isinstance(dataNode, slicer.vtkMRMLModelNode): # check dataNode is modelNode
-            if dataNode.GetName() in list(modelNames_dict.values()): # get dataNode's name is in the modelNames_dict
+        if dataNode is not None:
+            if dataNode.GetName() in nodeNames:
                 shNode.SetItemParent(shItemId, folderItemId)
     
     # need to do this to instantiate FolderDisplayNode (folderNode is None before this)
@@ -289,3 +293,11 @@ def get_all_parents_visibility(itemName):
     parentIds = get_all_parents(shNode, itemId)
     visibility_list = [shNode.GetItemDataNode(parentId).GetVisibility() for parentId in parentIds]
     return visibility_list
+
+def clone_node(inputNode, outputNodeName):
+    shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
+    itemIDToClone = shNode.GetItemByDataNode(inputNode)
+    clonedItemID = slicer.modules.subjecthierarchy.logic().CloneSubjectHierarchyItem(shNode, itemIDToClone)
+    clonedNode = shNode.GetItemDataNode(clonedItemID)
+    clonedNode.SetName(outputNodeName)
+    return clonedNode

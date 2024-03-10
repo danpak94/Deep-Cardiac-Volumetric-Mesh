@@ -8,14 +8,14 @@ from dcvm.utils import Config
 def load_config(exp_dir):
     json_path = os.path.join(exp_dir, 'config.json')
     assert os.path.isfile(json_path), "No json configuration file found at {}".format(json_path)
-    config = Config.from_file(json_path)
+    config = Config.from_json(json_path)
     config.cuda = torch.cuda.is_available()
     return config
 
-def load_checkpoint(restore_path, model=None, optimizer=None, scheduler=None, map_location=torch.device('cuda')):
-    if not os.path.isfile(restore_path):
-        raise("File doesn't exist {}".format(restore_path))
-    checkpoint = torch.load(restore_path, map_location=map_location)
+def load_checkpoint(filepath, model=None, optimizer=None, scheduler=None, map_location=torch.device('cuda')):
+    if not os.path.isfile(filepath):
+        raise("File doesn't exist {}".format(filepath))
+    checkpoint = torch.load(filepath, map_location=map_location)
     if model:
         model.load_state_dict(checkpoint['model'])
     if optimizer:
@@ -23,6 +23,10 @@ def load_checkpoint(restore_path, model=None, optimizer=None, scheduler=None, ma
     if scheduler:
         scheduler.load_state_dict(checkpoint['scheduler'])
     return checkpoint
+
+def save_checkpoint(state, filepath):
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    torch.save(state, filepath)
 
 def load_model(exp_dir, checkpoint_name='best', map_location=torch.device('cuda')):
     config = load_config(exp_dir)
