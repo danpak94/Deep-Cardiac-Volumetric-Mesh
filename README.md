@@ -1,8 +1,9 @@
 # Deep-Cardiac-Volumetric-Mesh (DeepCarve)
 
+Check out our [project page](https://danpak94.github.io/heart-meshing/)
+
 1. Heart mesh generation for biomechanics in <1 second
-2. dcvm python package for pytorch model training & inference
-    - training code coming soon
+2. dcvm python package for pytorch model inference
 3. 3D Slicer visualization for inference
 
 ### Sample results (TMI 2023)
@@ -14,39 +15,11 @@
 ### System requirements
 
 1. Windows or Linux (requires CUDA for now)
-
-### Setup: 3D Slicer
-
-1. Download the repository
-    ```shell
-    $ git clone https://github.com/danpak94/Deep-Cardiac-Volumetric-Mesh.git
-    ```
-
 2. [Download 3D slicer](https://download.slicer.org/)
 
-3. Add SlicerDeepCardiac module(s)
-\
-\
-**NOTE**: this will slicer.util.pip_install required packages
-    - Select "Extension Wizard" module
-        - Modules &rarr; Developer Tools &rarr; Extension Wizard
-        - Or use "Find module" (magnifying glass next to "Modules:") and type "Extension Wizard"
-    - Choose "Select Extension"
-    - Select the "Deep-Cardiac-Volumetric-Mesh/SlicerDeepCardiac" folder
-    - Follow prompts (check everything & say yes)
+### Instructions
 
-4. "ROI pred" module should be ready! (icon: <img src="SlicerDeepCardiac/RoiPred/Resources/Icons/RoiPred.png" width="20">)
-    - Modules &rarr; SlicerDeepCardiac &rarr; ROI pred
-
-### Quick start: ROI pred
-
-(Only once during setup) "Setup &rarr; Download pre-trained model weights & mesh templates"
-1. Load and select image volume
-2. Define ROI
-    - Only change "ROI center" for compatibility with dcvm pre-trained models
-3. Load model weights and mesh template
-4. "Crop & Run loaded model(s)"
-5. "Save buttons &rarr; Save input node's outputs as .inp"
+Check our [project page](https://danpak94.github.io/heart-meshing/) for video instructions!
 
 ### Citation
 ```
