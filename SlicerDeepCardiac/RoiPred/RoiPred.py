@@ -1,3 +1,19 @@
+"""
+    Copyright 2024 Daniel H. Pak, Yale University
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+"""
+
 import os
 import sys
 import importlib
@@ -651,10 +667,9 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onSetupDataButton(self):
         self.progress_bar_and_run_time.start(maximum=1)
-        if not os.path.exists(roi_pred_lib.temp_data_dir):
-            slicer.util.messageBox(f'No data folder found at:\n\n{roi_pred_lib.temp_data_dir}\n\nPlease first download & extract the .zip from a Github release')
-            
-        roi_pred_lib.relocate_data()
+        successful, downloaded_data_dir = RoiPredSetup.RoiPredSetup.relocate_data()
+        if not successful:
+            slicer.util.messageBox(f'No data folder found at:\n\n{downloaded_data_dir}\n\nPlease first download & extract the .zip from a Github release')
 
         self.progress_bar_and_run_time.end()
 
@@ -718,8 +733,6 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if len(self.heart_fiber_ori) == 0:
             self.heart_fiber_ori = None
         self.heart_mesh_keys = list(self.heart_elems.keys())
-        # self.verts_template_torch, self.heart_elems, self.heart_cell_types, self.heart_faces = dcvm.io.load_template_inference(template_dir, template_filename_prefix)
-        # self.heart_mesh_keys = list(self.heart_elems.keys()) + list(self.heart_faces.keys())
 
         self._parameterNode.SetParameter("templateLoaded", "true")
         

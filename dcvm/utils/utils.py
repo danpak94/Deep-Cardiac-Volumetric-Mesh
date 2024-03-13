@@ -1,3 +1,19 @@
+"""
+    Copyright 2024 Daniel H. Pak, Yale University
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+"""
+
 import sys
 import os
 import json
@@ -53,18 +69,6 @@ class Config():
             else:
                 out.append(f"{' ' * indent * level}{key}: {value}")
         return "\n".join(out)
-
-# def load_class_or_func(full_path, *args, **kwargs):
-#     ''' 
-#     Use cases:
-#     1. class with __call__()
-#     2. class with forward()
-#     3. function that returns another function handle
-#     '''
-#     module_path, class_or_func_name = full_path.rsplit('.', 1)
-#     module = importlib.import_module(module_path)
-#     class_or_func = getattr(module, class_or_func_name)
-#     return class_or_func(*args, **kwargs)
 
 def flatten_list_of_lists(lst_of_lsts, return_len_each_sublist=False):
     flat_lst = [x for sublist in lst_of_lsts for x in sublist]

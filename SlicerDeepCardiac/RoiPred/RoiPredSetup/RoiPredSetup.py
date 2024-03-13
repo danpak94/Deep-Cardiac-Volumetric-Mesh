@@ -1,3 +1,21 @@
+"""
+    Copyright 2024 Daniel H. Pak, Yale University
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+"""
+
+import os
+import shutil
 import importlib
 import types
 
@@ -38,3 +56,40 @@ def install_missing_pkgs_in_slicer():
                 break
 
     return installed_any_pkg, cancelled_any_installation
+
+def relocate_data():
+    dcvm_parent_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../..'))
+    downloaded_data_dir = os.path.join(dcvm_parent_dir, '../dcvm_data_files')
+    if not os.path.exists(downloaded_data_dir):
+        return False, downloaded_data_dir # not successful
+
+    downloaded_exps_dir = os.path.join(downloaded_data_dir, 'experiments')
+    downloaded_template_dir = os.path.join(downloaded_data_dir, 'template_for_deform')
+    
+    dcvm_exps_dir = os.path.join(dcvm_parent_dir, 'experiments')
+    dcvm_template_dir = os.path.join(dcvm_parent_dir, 'template_for_deform')
+
+    move_matching_files(downloaded_exps_dir, dcvm_exps_dir)
+    move_matching_files(downloaded_template_dir, dcvm_template_dir)
+
+    shutil.rmtree(downloaded_data_dir, ignore_errors=True)
+    print('Deleted: {}'.format(downloaded_data_dir))
+    print(' ')
+
+    return True, downloaded_data_dir # successful
+
+def move_matching_files(dirA, dirB):
+    for root, dirs, files in os.walk(dirA):
+        for dir_name in dirs:
+            source_dir = os.path.join(root, dir_name)
+            dest_dir = os.path.join(dirB, dir_name)
+            os.makedirs(dest_dir, exist_ok=True)
+            # if os.path.exists(dest_dir):
+            for file_name in os.listdir(source_dir):
+                source_file = os.path.join(source_dir, file_name)
+                dest_file = os.path.join(dest_dir, file_name)
+                if os.path.isfile(source_file):
+                    shutil.move(source_file, dest_file)
+                    print('src: {}'.format(source_file))
+                    print('dst: {}'.format(dest_file))
+                    print(' ')
