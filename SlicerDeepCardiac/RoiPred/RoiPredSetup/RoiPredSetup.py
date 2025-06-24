@@ -15,6 +15,7 @@
 """
 
 import os
+import sys
 import shutil
 import importlib
 import types
@@ -30,8 +31,13 @@ def install_missing_pkgs_in_slicer():
         "pyvista": "pyvista==0.43.3",
         "matplotlib": "matplotlib==3.8.3",
         "pyacvd": "pyacvd==0.2.10",
-        "torch": "torch==1.13.0+cu116 torchvision==0.14.0+cu116 torchaudio==0.13.0 --extra-index-url https://download.pytorch.org/whl/cu116",
     }
+    if sys.platform == "darwin":
+        # mac
+        pkg_and_install["torch"] = "torch==1.13.0 torchvision==0.14.0 torchaudio==0.13.0"
+    else:
+        # linux and windows
+        pkg_and_install["torch"] = "torch==1.13.0+cu116 torchvision==0.14.0+cu116 torchaudio==0.13.0 --extra-index-url https://download.pytorch.org/whl/cu116"
 
     installed_any_pkg = False
     cancelled_any_installation = False

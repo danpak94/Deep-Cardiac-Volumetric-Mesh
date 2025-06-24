@@ -168,6 +168,8 @@ class RoiPredWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.roiS.textChanged.connect(self.updateParameterNodeFromGUI)
         self.ui.roiVisibility.toggled.connect(self.updateParameterNodeFromGUI)
         self.ui.useGPU.toggled.connect(self.updateParameterNodeFromGUI)
+        if not torch.cuda.is_available():
+            self.ui.useGPU.enabled = False
         self.ui.heartVisibility.toggled.connect(self.updateParameterNodeFromGUI)
         self.ui.ca2Visibility.toggled.connect(self.updateParameterNodeFromGUI)
         self.ui.heartStlVisibility.toggled.connect(self.updateParameterNodeFromGUI)
@@ -1082,7 +1084,10 @@ class RoiPredLogic(ScriptedLoadableModuleLogic):
         if not parameterNode.GetParameter("croppedVolumeDimensionsDisplay2"):
             parameterNode.SetParameter("croppedVolumeDimensionsDisplay2", "0")
         if not parameterNode.GetParameter("useGPU"):
-            parameterNode.SetParameter("useGPU", "true")
+            if torch.cuda.is_available():
+                parameterNode.SetParameter("useGPU", "true")
+            else:
+                parameterNode.SetParameter("useGPU", "false")
         if not parameterNode.GetParameter("aortaLvThickness"):
             parameterNode.SetParameter("aortaLvThickness", "1.5")
         if not parameterNode.GetParameter("leafletThickness"):
